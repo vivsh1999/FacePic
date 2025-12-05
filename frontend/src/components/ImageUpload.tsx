@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { uploadImages, processImages } from '../services/api';
-import type { UploadResponse } from '../types';
+import { Upload, X, CheckCircle, AlertCircle, Loader2, ImageIcon } from 'lucide-react';
+import { uploadImages, processImagesBackground, getTaskStatus } from '../services/api';
+import type { UploadResponse, TaskStatusResponse } from '../types';
 
 interface FileWithPreview extends File {
   preview?: string;
@@ -14,6 +14,34 @@ export default function ImageUpload() {
   const [processing, setProcessing] = useState(false);
   const [result, setResult] = useState<UploadResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [taskStatus, setTaskStatus] = useState<TaskStatusResponse | null>(null);
+  const pollIntervalRef = useRef<number | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const pollTaskStatus = async (taskId: string) => {
+    try {
+      const status = await getTaskStatus(taskId);
+      setTaskStatus(status);
+      
+      if (status.status === 'completed' || status.status === 'failed') {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+        setProcessing(false);
+      }
+    } catch (err) {
+      console.error('Failed to get task status:', err);
+    }
+  };
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const filesWithPreview = acceptedFiles.map((file) =>
@@ -50,6 +78,7 @@ export default function ImageUpload() {
 
     setUploading(true);
     setError(null);
+    setTaskStatus(null);
 
     try {
       const response = await uploadImages(files);
@@ -63,14 +92,23 @@ export default function ImageUpload() {
       });
       setFiles([]);
 
-      // Automatically process uploaded images
+      // Automatically process uploaded images in background
       if (response.uploaded > 0) {
         setProcessing(true);
         try {
-          await processImages(response.images.map((img) => img.id));
+          const bgResponse = await processImagesBackground(
+            response.images.map((img) => img.id)
+          );
+          
+          // Start polling for task status
+          pollIntervalRef.current = window.setInterval(() => {
+            pollTaskStatus(bgResponse.task_id);
+          }, 1000);
+          
+          // Initial poll
+          pollTaskStatus(bgResponse.task_id);
         } catch (err) {
           console.error('Processing error:', err);
-        } finally {
           setProcessing(false);
         }
       }
@@ -157,17 +195,12 @@ export default function ImageUpload() {
           <button
             onClick={handleUpload}
             disabled={uploading || processing}
-            className="w-full py-3 px-4 bg-primary-600 text-white font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 bg-primary-600 text-white font-medium rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
           >
             {uploading ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin" />
                 Uploading...
-              </>
-            ) : processing ? (
-              <>
-                <Loader2 className="h-5 w-5 animate-spin" />
-                Processing faces...
               </>
             ) : (
               <>
@@ -179,8 +212,72 @@ export default function ImageUpload() {
         </div>
       )}
 
+      {/* Processing Progress */}
+      {processing && taskStatus && (
+        <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+          <div className="flex items-center gap-3 mb-3">
+            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+            <p className="font-medium text-blue-800">
+              Processing images for face detection...
+            </p>
+          </div>
+          
+          {/* Progress bar */}
+          <div className="mb-3">
+            <div className="flex justify-between text-sm text-blue-700 mb-1">
+              <span>Progress</span>
+              <span>{taskStatus.progress} / {taskStatus.total}</span>
+            </div>
+            <div className="w-full bg-blue-200 rounded-full h-2.5">
+              <div 
+                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${(taskStatus.progress / taskStatus.total) * 100}%` }}
+              />
+            </div>
+          </div>
+          
+          {/* Stats */}
+          <div className="flex gap-4 text-sm text-blue-700">
+            <span className="flex items-center gap-1">
+              <ImageIcon className="h-4 w-4" />
+              {taskStatus.processed} processed
+            </span>
+            <span>👤 {taskStatus.faces_detected} faces found</span>
+          </div>
+        </div>
+      )}
+
+      {/* Processing Complete */}
+      {!processing && taskStatus?.status === 'completed' && (
+        <div className="p-4 rounded-lg bg-green-50 border border-green-200">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-green-800">
+                Processing complete!
+              </p>
+              <div className="mt-2 text-sm text-green-700 space-y-1">
+                <p>✓ {taskStatus.processed} images processed</p>
+                <p>✓ {taskStatus.faces_detected} faces detected</p>
+                <p>✓ {taskStatus.persons_created} new people identified</p>
+              </div>
+              {taskStatus.errors.length > 0 && (
+                <div className="mt-2 text-sm text-amber-700">
+                  <p className="font-medium">Some errors occurred:</p>
+                  <ul className="list-disc list-inside">
+                    {taskStatus.errors.map((err, i) => (
+                      <li key={i}>{err}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Results */}
-      {result && (
+      {result && !processing && !taskStatus && (
         <div
           className={`p-4 rounded-lg ${
             result.failed > 0 ? 'bg-amber-50' : 'bg-green-50'
@@ -216,7 +313,7 @@ export default function ImageUpload() {
 
       {/* Error */}
       {error && (
-        <div className="p-4 rounded-lg bg-red-50">
+        <div className="p-4 rounded-lg bg-red-50 border border-red-200">
           <div className="flex items-center gap-3">
             <AlertCircle className="h-5 w-5 text-red-500" />
             <p className="font-medium text-red-800">{error}</p>

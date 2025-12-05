@@ -4,6 +4,13 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
+# ============ Request Schemas ============
+
+class ProcessImagesRequest(BaseModel):
+    """Request body for processing images."""
+    image_ids: Optional[List[int]] = None
+
+
 # ============ Face Schemas ============
 
 class BoundingBox(BaseModel):
@@ -151,6 +158,26 @@ class ProcessingResponse(BaseModel):
     faces_detected: int
     persons_created: int
     errors: List[str] = []
+
+
+class BackgroundProcessingResponse(BaseModel):
+    """Response when processing is started in background."""
+    message: str
+    task_id: str
+    image_count: int
+
+
+class TaskStatusResponse(BaseModel):
+    """Response for background task status."""
+    task_id: str
+    status: str  # pending, processing, completed, failed
+    progress: int
+    total: int
+    processed: int
+    faces_detected: int
+    persons_created: int
+    errors: List[str] = []
+    completed_at: Optional[datetime] = None
 
 
 # ============ Stats Schemas ============

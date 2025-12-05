@@ -9,6 +9,8 @@ import type {
   ProcessingResponse,
   ProcessingStatus,
   Stats,
+  BackgroundProcessingResponse,
+  TaskStatusResponse,
 } from '../types';
 
 const api = axios.create({
@@ -64,6 +66,25 @@ export const processImages = async (
   const response = await api.post<ProcessingResponse>('/images/process', {
     image_ids: imageIds,
   });
+  return response.data;
+};
+
+export const processImagesBackground = async (
+  imageIds?: number[]
+): Promise<BackgroundProcessingResponse> => {
+  const response = await api.post<BackgroundProcessingResponse>(
+    '/images/process/background',
+    { image_ids: imageIds }
+  );
+  return response.data;
+};
+
+export const getTaskStatus = async (
+  taskId: string
+): Promise<TaskStatusResponse> => {
+  const response = await api.get<TaskStatusResponse>(
+    `/images/process/status/${taskId}`
+  );
   return response.data;
 };
 

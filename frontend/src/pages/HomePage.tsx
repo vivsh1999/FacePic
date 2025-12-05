@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Upload, Images, Users, Camera, ArrowRight } from 'lucide-react';
+import { Upload, Image, Users, Camera, ArrowRight } from 'lucide-react';
 import { getStats } from '../services/api';
 import type { Stats } from '../types';
 
@@ -45,7 +45,7 @@ export default function HomePage() {
           <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
             <div className="flex items-center gap-4">
               <div className="p-3 bg-blue-100 rounded-xl">
-                <Images className="h-6 w-6 text-blue-600" />
+                <Image className="h-6 w-6 text-blue-600" />
               </div>
               <div>
                 <p className="text-2xl font-bold text-slate-900">
@@ -131,7 +131,7 @@ export default function HomePage() {
           to="/gallery"
           className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-700"
         >
-          <Images className="h-4 w-4" />
+          <Image className="h-4 w-4" />
           View Gallery
         </Link>
         <Link

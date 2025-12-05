@@ -32,12 +32,12 @@ def _person_to_response(person: Person, db: Session) -> dict:
     if person.representative_face_id:
         face = db.query(Face).filter(Face.id == person.representative_face_id).first()
         if face and face.thumbnail_path:
-            thumbnail_url = f"/api/faces/{face.id}/thumbnail"
+            thumbnail_url = f"/api/images/faces/{face.id}/thumbnail"
     elif person.faces:
         # Fallback to first face
         first_face = person.faces[0]
         if first_face.thumbnail_path:
-            thumbnail_url = f"/api/faces/{first_face.id}/thumbnail"
+            thumbnail_url = f"/api/images/faces/{first_face.id}/thumbnail"
     
     return {
         "id": person.id,
@@ -96,7 +96,7 @@ async def get_person(person_id: int, db: Session = Depends(get_db)):
         {
             "id": face.id,
             "bbox": face.bbox,
-            "thumbnail_url": f"/api/faces/{face.id}/thumbnail" if face.thumbnail_path else None,
+            "thumbnail_url": f"/api/images/faces/{face.id}/thumbnail" if face.thumbnail_path else None,
             "person_id": face.person_id,
             "image_id": face.image_id,
             "created_at": face.created_at,

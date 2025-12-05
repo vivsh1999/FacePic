@@ -89,6 +89,24 @@ export interface ProcessingStatus {
   total_faces_detected: number;
 }
 
+export interface BackgroundProcessingResponse {
+  message: string;
+  task_id: string;
+  image_count: number;
+}
+
+export interface TaskStatusResponse {
+  task_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  total: number;
+  processed: number;
+  faces_detected: number;
+  persons_created: number;
+  errors: string[];
+  completed_at: string | null;
+}
+
 export interface Stats {
   total_images: number;
   total_faces: number;
