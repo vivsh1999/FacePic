@@ -1,0 +1,58 @@
+# Docker Compose for Development with Hot Reload
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount source code for hot reload
+      - ./backend/app:/app/app
+      # Persist uploads and thumbnails
+      - ./backend/uploads:/app/uploads
+      - ./backend/thumbnails:/app/thumbnails
+    environment:
+      - MONGODB_URL=${MONGODB_URL:-mongodb://mongo:27017}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-imagetag}
+      - UPLOAD_DIR=/app/uploads
+      - THUMBNAIL_DIR=/app/thumbnails
+      - FACE_RECOGNITION_TOLERANCE=0.6
+      - FACE_RECOGNITION_MODEL=cnn
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"
+    volumes:
+      # Mount source code for hot reload
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js
+      - ./frontend/postcss.config.js:/app/postcss.config.js
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+      - ./frontend/tsconfig.node.json:/app/tsconfig.node.json
+    environment:
+      - VITE_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

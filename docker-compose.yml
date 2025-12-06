@@ -1,0 +1,48 @@
+# Docker Compose for Production
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist uploads and thumbnails
+      - backend_uploads:/app/uploads
+      - backend_thumbnails:/app/thumbnails
+    environment:
+      - MONGODB_URL=${MONGODB_URL}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-imagetag}
+      - UPLOAD_DIR=/app/uploads
+      - THUMBNAIL_DIR=/app/thumbnails
+      - FACE_RECOGNITION_TOLERANCE=${FACE_RECOGNITION_TOLERANCE:-0.6}
+      - FACE_RECOGNITION_MODEL=${FACE_RECOGNITION_MODEL:-cnn}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:4173}
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "4173:4173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  backend_uploads:
+  backend_thumbnails:

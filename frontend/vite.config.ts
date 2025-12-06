@@ -12,9 +12,13 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    host: true, // Enable listening on all addresses (needed for Docker)
+    watch: {
+      usePolling: true, // Enable polling for Docker volume mounts
+    },
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_API_URL || 'http://localhost:8000',
         changeOrigin: true,
       },
     },

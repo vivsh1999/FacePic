@@ -23,6 +23,10 @@ backend/thumbnails/*
 !backend/thumbnails/images/.gitkeep
 !backend/thumbnails/faces/.gitkeep
 
+# Root-level uploads/thumbnails (Docker volumes)
+uploads/
+thumbnails/
+
 # Build outputs
 dist/
 build/
