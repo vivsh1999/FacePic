@@ -46,12 +46,12 @@ export const getImages = async (
   return response.data;
 };
 
-export const getImage = async (imageId: number): Promise<ImageDetail> => {
+export const getImage = async (imageId: string): Promise<ImageDetail> => {
   const response = await api.get<ImageDetail>(`/images/${imageId}`);
   return response.data;
 };
 
-export const deleteImage = async (imageId: number): Promise<void> => {
+export const deleteImage = async (imageId: string): Promise<void> => {
   await api.delete(`/images/${imageId}`);
 };
 
@@ -61,7 +61,7 @@ export const getProcessingStatus = async (): Promise<ProcessingStatus> => {
 };
 
 export const processImages = async (
-  imageIds?: number[]
+  imageIds?: string[]
 ): Promise<ProcessingResponse> => {
   const response = await api.post<ProcessingResponse>('/images/process', {
     image_ids: imageIds,
@@ -70,7 +70,7 @@ export const processImages = async (
 };
 
 export const processImagesBackground = async (
-  imageIds?: number[]
+  imageIds?: string[]
 ): Promise<BackgroundProcessingResponse> => {
   const response = await api.post<BackgroundProcessingResponse>(
     '/images/process/background',
@@ -107,25 +107,25 @@ export const getPersons = async (
   return response.data;
 };
 
-export const getPerson = async (personId: number): Promise<PersonDetail> => {
+export const getPerson = async (personId: string): Promise<PersonDetail> => {
   const response = await api.get<PersonDetail>(`/persons/${personId}`);
   return response.data;
 };
 
 export const updatePerson = async (
-  personId: number,
+  personId: string,
   name: string
 ): Promise<Person> => {
   const response = await api.put<Person>(`/persons/${personId}`, { name });
   return response.data;
 };
 
-export const deletePerson = async (personId: number): Promise<void> => {
+export const deletePerson = async (personId: string): Promise<void> => {
   await api.delete(`/persons/${personId}`);
 };
 
 export const getPersonPhotos = async (
-  personId: number,
+  personId: string,
   skip = 0,
   limit = 50
 ): Promise<PersonPhotosResponse> => {
@@ -137,8 +137,8 @@ export const getPersonPhotos = async (
 };
 
 export const mergePersons = async (
-  sourcePersonId: number,
-  targetPersonId: number
+  sourcePersonId: string,
+  targetPersonId: string
 ): Promise<{ message: string; person: Person }> => {
   const response = await api.post<{ message: string; person: Person }>(
     '/persons/merge',

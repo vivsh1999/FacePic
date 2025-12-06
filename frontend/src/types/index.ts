@@ -8,16 +8,16 @@ export interface BoundingBox {
 }
 
 export interface Face {
-  id: number;
-  image_id: number;
-  person_id: number | null;
+  id: string;
+  image_id: string;
+  person_id: string | null;
   bbox: BoundingBox;
   thumbnail_url: string | null;
   created_at: string;
 }
 
 export interface Image {
-  id: number;
+  id: string;
   filename: string;
   original_filename: string;
   thumbnail_url: string | null;
@@ -35,7 +35,7 @@ export interface ImageDetail extends Image {
 }
 
 export interface Person {
-  id: number;
+  id: string;
   name: string | null;
   display_name: string;
   face_count: number;
@@ -50,7 +50,7 @@ export interface PersonDetail extends Person {
 }
 
 export interface PersonPhoto {
-  id: number;
+  id: string;
   filename: string;
   original_filename: string;
   thumbnail_url: string | null;
@@ -58,7 +58,7 @@ export interface PersonPhoto {
   width: number | null;
   height: number | null;
   uploaded_at: string;
-  faces: { id: number; bbox: BoundingBox }[];
+  faces: { id: string; bbox: BoundingBox }[];
 }
 
 export interface PersonPhotosResponse {

@@ -3,12 +3,13 @@ import os
 import uuid
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from bson import ObjectId
 
-from ..database import get_db, SessionLocal
-from ..models import Image, Face
+from ..database import get_db, get_sync_database, to_object_id
+from ..models import ImageDocument, FaceDocument, image_from_doc, face_from_doc
 from ..schemas import (
     ImageResponse, 
     ImageDetail, 
@@ -30,8 +31,8 @@ settings = get_settings()
 background_tasks_status: Dict[str, Dict[str, Any]] = {}
 
 
-def _image_to_response(image: Image, request_base_url: str = "") -> dict:
-    """Convert Image model to response dict."""
+def _image_to_response(image: ImageDocument, face_count: int = 0) -> dict:
+    """Convert ImageDocument to response dict."""
     return {
         "id": image.id,
         "filename": image.filename,
@@ -43,15 +44,14 @@ def _image_to_response(image: Image, request_base_url: str = "") -> dict:
         "file_size": image.file_size,
         "uploaded_at": image.uploaded_at,
         "processed": image.processed,
-        "face_count": len(image.faces),
+        "face_count": face_count,
     }
 
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_images(
     files: List[UploadFile] = File(...),
-    db: Session = Depends(get_db),
-    background_tasks: BackgroundTasks = None,
+    db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
     Upload multiple images.
@@ -78,8 +78,8 @@ async def upload_images(
             # Create thumbnail
             thumbnail_path = image_service.create_image_thumbnail(filepath, unique_filename)
             
-            # Create database record
-            db_image = Image(
+            # Create document
+            image_doc = ImageDocument(
                 filename=unique_filename,
                 original_filename=file.filename,
                 filepath=filepath,
@@ -88,13 +88,14 @@ async def upload_images(
                 height=height,
                 file_size=file_size,
                 mime_type=mime_type,
-                processed=0,  # Pending processing
+                processed=0,
             )
-            db.add(db_image)
-            db.commit()
-            db.refresh(db_image)
             
-            uploaded.append(_image_to_response(db_image))
+            # Insert into MongoDB
+            result = await db.images.insert_one(image_doc.to_dict())
+            image_doc.id = str(result.inserted_id)
+            
+            uploaded.append(_image_to_response(image_doc, 0))
             
         except Exception as e:
             errors.append(f"Failed to upload {file.filename}: {str(e)}")
@@ -112,33 +113,36 @@ async def list_images(
     skip: int = 0,
     limit: int = 50,
     processed: Optional[int] = None,
-    db: Session = Depends(get_db),
+    db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
     List all uploaded images.
-    
-    - **skip**: Number of records to skip (pagination)
-    - **limit**: Maximum number of records to return
-    - **processed**: Filter by processing status (0=pending, 1=done, -1=failed)
     """
-    query = db.query(Image)
-    
+    query = {}
     if processed is not None:
-        query = query.filter(Image.processed == processed)
+        query["processed"] = processed
     
-    images = query.order_by(Image.uploaded_at.desc()).offset(skip).limit(limit).all()
+    cursor = db.images.find(query).sort("uploaded_at", -1).skip(skip).limit(limit)
+    images = await cursor.to_list(length=limit)
     
-    return [_image_to_response(img) for img in images]
+    result = []
+    for doc in images:
+        image = image_from_doc(doc)
+        # Count faces for this image
+        face_count = await db.faces.count_documents({"image_id": image.id})
+        result.append(_image_to_response(image, face_count))
+    
+    return result
 
 
 @router.get("/status", response_model=ProcessingStatus)
-async def get_processing_status(db: Session = Depends(get_db)):
+async def get_processing_status(db: AsyncIOMotorDatabase = Depends(get_db)):
     """Get the current processing status."""
-    total = db.query(Image).count()
-    processed = db.query(Image).filter(Image.processed == 1).count()
-    pending = db.query(Image).filter(Image.processed == 0).count()
-    failed = db.query(Image).filter(Image.processed == -1).count()
-    total_faces = db.query(Face).count()
+    total = await db.images.count_documents({})
+    processed = await db.images.count_documents({"processed": 1})
+    pending = await db.images.count_documents({"processed": 0})
+    failed = await db.images.count_documents({"processed": -1})
+    total_faces = await db.faces.count_documents({})
     
     return ProcessingStatus(
         total_images=total,
@@ -150,36 +154,55 @@ async def get_processing_status(db: Session = Depends(get_db)):
 
 
 @router.get("/{image_id}", response_model=ImageDetail)
-async def get_image(image_id: int, db: Session = Depends(get_db)):
+async def get_image(image_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Get image details including detected faces."""
-    image = db.query(Image).filter(Image.id == image_id).first()
+    oid = to_object_id(image_id)
+    if not oid:
+        raise HTTPException(status_code=400, detail="Invalid image ID")
     
-    if not image:
+    doc = await db.images.find_one({"_id": oid})
+    if not doc:
         raise HTTPException(status_code=404, detail="Image not found")
     
-    response = _image_to_response(image)
+    image = image_from_doc(doc)
+    
+    # Get faces for this image
+    faces_cursor = db.faces.find({"image_id": image_id})
+    faces = await faces_cursor.to_list(length=1000)
+    
+    response = _image_to_response(image, len(faces))
     response["faces"] = [
         {
-            "id": face.id,
-            "bbox": face.bbox,
-            "thumbnail_url": f"/api/images/faces/{face.id}/thumbnail" if face.thumbnail_path else None,
-            "person_id": face.person_id,
-            "image_id": face.image_id,
-            "created_at": face.created_at,
+            "id": str(face["_id"]),
+            "bbox": {
+                "top": face["bbox_top"],
+                "right": face["bbox_right"],
+                "bottom": face["bbox_bottom"],
+                "left": face["bbox_left"],
+            },
+            "thumbnail_url": f"/api/images/faces/{str(face['_id'])}/thumbnail" if face.get("thumbnail_path") else None,
+            "person_id": face.get("person_id"),
+            "image_id": face["image_id"],
+            "created_at": face.get("created_at"),
         }
-        for face in image.faces
+        for face in faces
     ]
     
     return response
 
 
 @router.get("/{image_id}/file")
-async def get_image_file(image_id: int, db: Session = Depends(get_db)):
+async def get_image_file(image_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Get the original image file."""
-    image = db.query(Image).filter(Image.id == image_id).first()
+    oid = to_object_id(image_id)
+    if not oid:
+        raise HTTPException(status_code=400, detail="Invalid image ID")
     
-    if not image:
+    doc = await db.images.find_one({"_id": oid})
+    if not doc:
         raise HTTPException(status_code=404, detail="Image not found")
+    
+    image = image_from_doc(doc)
     
     if not os.path.exists(image.filepath):
         raise HTTPException(status_code=404, detail="Image file not found")
@@ -192,12 +215,17 @@ async def get_image_file(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{image_id}/thumbnail")
-async def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
+async def get_image_thumbnail(image_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Get the image thumbnail."""
-    image = db.query(Image).filter(Image.id == image_id).first()
+    oid = to_object_id(image_id)
+    if not oid:
+        raise HTTPException(status_code=400, detail="Invalid image ID")
     
-    if not image:
+    doc = await db.images.find_one({"_id": oid})
+    if not doc:
         raise HTTPException(status_code=404, detail="Image not found")
+    
+    image = image_from_doc(doc)
     
     if not image.thumbnail_path or not os.path.exists(image.thumbnail_path):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
@@ -206,24 +234,33 @@ async def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{image_id}")
-async def delete_image(image_id: int, db: Session = Depends(get_db)):
+async def delete_image(image_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Delete an image and its associated data."""
-    image = db.query(Image).filter(Image.id == image_id).first()
+    oid = to_object_id(image_id)
+    if not oid:
+        raise HTTPException(status_code=400, detail="Invalid image ID")
     
-    if not image:
+    doc = await db.images.find_one({"_id": oid})
+    if not doc:
         raise HTTPException(status_code=404, detail="Image not found")
     
+    image = image_from_doc(doc)
+    
     # Delete face thumbnails
-    for face in image.faces:
-        if face.thumbnail_path:
-            image_service.delete_face_thumbnail(face.thumbnail_path)
+    faces_cursor = db.faces.find({"image_id": image_id})
+    faces = await faces_cursor.to_list(length=1000)
+    for face in faces:
+        if face.get("thumbnail_path"):
+            image_service.delete_face_thumbnail(face["thumbnail_path"])
+    
+    # Delete faces from database
+    await db.faces.delete_many({"image_id": image_id})
     
     # Delete image files
     image_service.delete_image_files(image.filepath, image.thumbnail_path)
     
-    # Delete from database (cascades to faces)
-    db.delete(image)
-    db.commit()
+    # Delete image from database
+    await db.images.delete_one({"_id": oid})
     
     return {"message": "Image deleted successfully"}
 
@@ -231,28 +268,28 @@ async def delete_image(image_id: int, db: Session = Depends(get_db)):
 @router.post("/process", response_model=ProcessingResponse)
 async def process_images(
     request: ProcessImagesRequest = None,
-    db: Session = Depends(get_db),
+    db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
     Process images for face detection.
-    
-    If no image_ids provided, processes all pending images.
     """
     image_ids = request.image_ids if request else None
     
     # Get images to process
-    query = db.query(Image).filter(Image.processed == 0)
+    query = {"processed": 0}
     if image_ids:
-        query = query.filter(Image.id.in_(image_ids))
+        query["_id"] = {"$in": [to_object_id(id) for id in image_ids if to_object_id(id)]}
     
-    images = query.all()
+    cursor = db.images.find(query)
+    images = await cursor.to_list(length=1000)
     
     processed_count = 0
     faces_detected = 0
     errors = []
     new_face_ids = []
     
-    for image in images:
+    for doc in images:
+        image = image_from_doc(doc)
         try:
             # Detect faces
             detected = face_service.detect_faces(image.filepath)
@@ -260,8 +297,8 @@ async def process_images(
             for bbox, encoding in detected:
                 top, right, bottom, left = bbox
                 
-                # Create face record
-                face = Face(
+                # Create face document
+                face_doc = FaceDocument(
                     image_id=image.id,
                     bbox_top=top,
                     bbox_right=right,
@@ -269,32 +306,44 @@ async def process_images(
                     bbox_left=left,
                     encoding=face_service.encoding_to_bytes(encoding),
                 )
-                db.add(face)
-                db.flush()  # Get the ID
+                
+                result = await db.faces.insert_one(face_doc.to_dict())
+                face_id = str(result.inserted_id)
                 
                 # Create face thumbnail
-                face.thumbnail_path = image_service.create_face_thumbnail(
+                thumbnail_path = image_service.create_face_thumbnail(
                     image.filepath,
                     {"top": top, "right": right, "bottom": bottom, "left": left},
-                    face.id,
+                    face_id,
                 )
                 
-                new_face_ids.append(face.id)
+                # Update face with thumbnail path
+                await db.faces.update_one(
+                    {"_id": result.inserted_id},
+                    {"$set": {"thumbnail_path": thumbnail_path}}
+                )
+                
+                new_face_ids.append(face_id)
                 faces_detected += 1
             
-            image.processed = 1
+            # Mark image as processed
+            await db.images.update_one(
+                {"_id": to_object_id(image.id)},
+                {"$set": {"processed": 1}}
+            )
             processed_count += 1
             
         except Exception as e:
-            image.processed = -1
+            await db.images.update_one(
+                {"_id": to_object_id(image.id)},
+                {"$set": {"processed": -1}}
+            )
             errors.append(f"Failed to process {image.filename}: {str(e)}")
-    
-    db.commit()
     
     # Cluster new faces into persons
     persons_created = 0
     if new_face_ids:
-        clustering_stats = cluster_faces(db, new_face_ids)
+        clustering_stats = await cluster_faces(db, new_face_ids)
         persons_created = clustering_stats.get("new_persons_created", 0)
     
     return ProcessingResponse(
@@ -305,14 +354,15 @@ async def process_images(
     )
 
 
-def _process_images_background(task_id: str, image_ids: List[int]):
+def _process_images_background(task_id: str, image_ids: List[str]):
     """Background task to process images for face detection."""
-    db = SessionLocal()
+    db = get_sync_database()
     try:
         # Update task status
         background_tasks_status[task_id]["status"] = "processing"
         
-        images = db.query(Image).filter(Image.id.in_(image_ids)).all()
+        # Get images
+        images = list(db.images.find({"_id": {"$in": [ObjectId(id) for id in image_ids]}}))
         total = len(images)
         
         background_tasks_status[task_id]["total"] = total
@@ -322,7 +372,10 @@ def _process_images_background(task_id: str, image_ids: List[int]):
         errors = []
         new_face_ids = []
         
-        for i, image in enumerate(images):
+        for i, doc in enumerate(images):
+            doc["_id"] = str(doc["_id"])
+            image = image_from_doc(doc)
+            
             try:
                 # Detect faces
                 detected = face_service.detect_faces(image.filepath)
@@ -330,31 +383,44 @@ def _process_images_background(task_id: str, image_ids: List[int]):
                 for bbox, encoding in detected:
                     top, right, bottom, left = bbox
                     
-                    face = Face(
-                        image_id=image.id,
-                        bbox_top=top,
-                        bbox_right=right,
-                        bbox_bottom=bottom,
-                        bbox_left=left,
-                        encoding=face_service.encoding_to_bytes(encoding),
-                    )
-                    db.add(face)
-                    db.flush()
+                    face_data = {
+                        "image_id": image.id,
+                        "bbox_top": top,
+                        "bbox_right": right,
+                        "bbox_bottom": bottom,
+                        "bbox_left": left,
+                        "encoding": face_service.encoding_to_bytes(encoding),
+                        "created_at": datetime.utcnow(),
+                    }
                     
-                    face.thumbnail_path = image_service.create_face_thumbnail(
+                    result = db.faces.insert_one(face_data)
+                    face_id = str(result.inserted_id)
+                    
+                    thumbnail_path = image_service.create_face_thumbnail(
                         image.filepath,
                         {"top": top, "right": right, "bottom": bottom, "left": left},
-                        face.id,
+                        face_id,
                     )
                     
-                    new_face_ids.append(face.id)
+                    db.faces.update_one(
+                        {"_id": result.inserted_id},
+                        {"$set": {"thumbnail_path": thumbnail_path}}
+                    )
+                    
+                    new_face_ids.append(face_id)
                     faces_detected += 1
                 
-                image.processed = 1
+                db.images.update_one(
+                    {"_id": ObjectId(image.id)},
+                    {"$set": {"processed": 1}}
+                )
                 processed_count += 1
                 
             except Exception as e:
-                image.processed = -1
+                db.images.update_one(
+                    {"_id": ObjectId(image.id)},
+                    {"$set": {"processed": -1}}
+                )
                 errors.append(f"Failed to process {image.filename}: {str(e)}")
             
             # Update progress
@@ -362,13 +428,12 @@ def _process_images_background(task_id: str, image_ids: List[int]):
             background_tasks_status[task_id]["processed"] = processed_count
             background_tasks_status[task_id]["faces_detected"] = faces_detected
             background_tasks_status[task_id]["errors"] = errors
-            
-            db.commit()
         
-        # Cluster new faces
+        # Cluster new faces (sync version)
         persons_created = 0
         if new_face_ids:
-            clustering_stats = cluster_faces(db, new_face_ids)
+            from ..services.clustering_service import cluster_faces_sync
+            clustering_stats = cluster_faces_sync(db, new_face_ids)
             persons_created = clustering_stats.get("new_persons_created", 0)
         
         # Mark task as completed
@@ -379,36 +444,33 @@ def _process_images_background(task_id: str, image_ids: List[int]):
     except Exception as e:
         background_tasks_status[task_id]["status"] = "failed"
         background_tasks_status[task_id]["errors"].append(str(e))
-    finally:
-        db.close()
 
 
 @router.post("/process/background", response_model=BackgroundProcessingResponse)
 async def process_images_background(
     background_tasks: BackgroundTasks,
     request: ProcessImagesRequest = None,
-    db: Session = Depends(get_db),
+    db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
     Process images for face detection in the background.
-    
-    Returns immediately with a task_id that can be used to check progress.
     """
     image_ids = request.image_ids if request else None
     
     # Get images to process
-    query = db.query(Image).filter(Image.processed == 0)
+    query = {"processed": 0}
     if image_ids:
-        query = query.filter(Image.id.in_(image_ids))
+        query["_id"] = {"$in": [to_object_id(id) for id in image_ids if to_object_id(id)]}
     
-    images = query.all()
+    cursor = db.images.find(query)
+    images = await cursor.to_list(length=1000)
     
     if not images:
         raise HTTPException(status_code=400, detail="No images to process")
     
     # Create task
     task_id = str(uuid.uuid4())
-    image_ids_to_process = [img.id for img in images]
+    image_ids_to_process = [str(img["_id"]) for img in images]
     
     background_tasks_status[task_id] = {
         "task_id": task_id,
@@ -452,14 +514,18 @@ async def get_task_status(task_id: str):
     )
 
 
-# Face thumbnail endpoint (convenience)
 @router.get("/faces/{face_id}/thumbnail")
-async def get_face_thumbnail(face_id: int, db: Session = Depends(get_db)):
+async def get_face_thumbnail(face_id: str, db: AsyncIOMotorDatabase = Depends(get_db)):
     """Get a face thumbnail."""
-    face = db.query(Face).filter(Face.id == face_id).first()
+    oid = to_object_id(face_id)
+    if not oid:
+        raise HTTPException(status_code=400, detail="Invalid face ID")
     
-    if not face:
+    doc = await db.faces.find_one({"_id": oid})
+    if not doc:
         raise HTTPException(status_code=404, detail="Face not found")
+    
+    face = face_from_doc(doc)
     
     if not face.thumbnail_path or not os.path.exists(face.thumbnail_path):
         raise HTTPException(status_code=404, detail="Face thumbnail not found")

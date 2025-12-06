@@ -17,7 +17,7 @@ export default function PersonPhotos() {
 
     try {
       setLoading(true);
-      const response = await getPersonPhotos(parseInt(personId));
+      const response = await getPersonPhotos(personId);
       setData(response);
       setError(null);
     } catch (err) {
@@ -40,7 +40,7 @@ export default function PersonPhotos() {
     if (!personId || !data) return;
 
     try {
-      const updated = await updatePerson(parseInt(personId), editName);
+      const updated = await updatePerson(personId, editName);
       setData({
         ...data,
         person: { ...data.person, ...updated },

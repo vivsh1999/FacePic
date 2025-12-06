@@ -1,91 +1,110 @@
-"""SQLAlchemy ORM models."""
+"""MongoDB document models using Pydantic."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, LargeBinary, Text
-from sqlalchemy.orm import relationship
-from .database import Base
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field
+from bson import ObjectId
 
 
-class Image(Base):
+class PyObjectId(str):
+    """Custom type for MongoDB ObjectId."""
+    
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+    
+    @classmethod
+    def validate(cls, v):
+        if isinstance(v, ObjectId):
+            return str(v)
+        if isinstance(v, str) and ObjectId.is_valid(v):
+            return v
+        raise ValueError("Invalid ObjectId")
+
+
+class BoundingBox(BaseModel):
+    """Face bounding box coordinates."""
+    top: int
+    right: int
+    bottom: int
+    left: int
+
+
+class ImageDocument(BaseModel):
     """Model for storing uploaded images."""
     
-    __tablename__ = "images"
+    id: Optional[str] = Field(default=None, alias="_id")
+    filename: str
+    original_filename: str
+    filepath: str
+    thumbnail_path: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    file_size: Optional[int] = None  # in bytes
+    mime_type: Optional[str] = None
+    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    processed: int = 0  # 0: pending, 1: processed, -1: failed
     
-    id = Column(Integer, primary_key=True, index=True)
-    filename = Column(String(255), nullable=False)
-    original_filename = Column(String(255), nullable=False)
-    filepath = Column(String(512), nullable=False, unique=True)
-    thumbnail_path = Column(String(512), nullable=True)
-    width = Column(Integer, nullable=True)
-    height = Column(Integer, nullable=True)
-    file_size = Column(Integer, nullable=True)  # in bytes
-    mime_type = Column(String(100), nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
-    processed = Column(Integer, default=0)  # 0: pending, 1: processed, -1: failed
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
     
-    # Relationships
-    faces = relationship("Face", back_populates="image", cascade="all, delete-orphan")
-    
-    def __repr__(self):
-        return f"<Image(id={self.id}, filename='{self.filename}')>"
+    def to_dict(self) -> dict:
+        """Convert to dictionary for MongoDB insert."""
+        data = self.model_dump(by_alias=True, exclude={"id"})
+        return data
 
 
-class Person(Base):
+class PersonDocument(BaseModel):
     """Model for storing identified persons (face clusters)."""
     
-    __tablename__ = "persons"
+    id: Optional[str] = Field(default=None, alias="_id")
+    name: Optional[str] = None  # User-assigned name, null if unlabeled
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    representative_face_id: Optional[str] = None  # Best face for thumbnail
     
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=True)  # User-assigned name, null if unlabeled
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    representative_face_id = Column(Integer, nullable=True)  # Best face for thumbnail
-    
-    # Relationships
-    faces = relationship("Face", back_populates="person")
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
     
     @property
     def display_name(self) -> str:
         """Return name or a placeholder."""
-        return self.name if self.name else f"Person {self.id}"
+        return self.name if self.name else f"Person {self.id[-6:] if self.id else 'Unknown'}"
     
-    @property
-    def photo_count(self) -> int:
-        """Number of photos this person appears in."""
-        return len(set(face.image_id for face in self.faces))
-    
-    def __repr__(self):
-        return f"<Person(id={self.id}, name='{self.name}')>"
+    def to_dict(self) -> dict:
+        """Convert to dictionary for MongoDB insert."""
+        data = self.model_dump(by_alias=True, exclude={"id"})
+        return data
 
 
-class Face(Base):
+class FaceDocument(BaseModel):
     """Model for storing detected faces."""
     
-    __tablename__ = "faces"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    image_id = Column(Integer, ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
-    person_id = Column(Integer, ForeignKey("persons.id", ondelete="SET NULL"), nullable=True)
+    id: Optional[str] = Field(default=None, alias="_id")
+    image_id: str
+    person_id: Optional[str] = None
     
     # Bounding box coordinates (top, right, bottom, left format from face_recognition)
-    bbox_top = Column(Integer, nullable=False)
-    bbox_right = Column(Integer, nullable=False)
-    bbox_bottom = Column(Integer, nullable=False)
-    bbox_left = Column(Integer, nullable=False)
+    bbox_top: int
+    bbox_right: int
+    bbox_bottom: int
+    bbox_left: int
     
     # Face encoding (128-dimensional vector stored as binary)
-    encoding = Column(LargeBinary, nullable=True)
+    encoding: Optional[bytes] = None
     
     # Thumbnail path for the cropped face
-    thumbnail_path = Column(String(512), nullable=True)
+    thumbnail_path: Optional[str] = None
     
     # Confidence score if available
-    confidence = Column(Float, nullable=True)
+    confidence: Optional[float] = None
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
     
-    # Relationships
-    image = relationship("Image", back_populates="faces")
-    person = relationship("Person", back_populates="faces")
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
     
     @property
     def bbox(self) -> dict:
@@ -107,5 +126,30 @@ class Face(Base):
         """Height of the face bounding box."""
         return self.bbox_bottom - self.bbox_top
     
-    def __repr__(self):
-        return f"<Face(id={self.id}, image_id={self.image_id}, person_id={self.person_id})>"
+    def to_dict(self) -> dict:
+        """Convert to dictionary for MongoDB insert."""
+        data = self.model_dump(by_alias=True, exclude={"id"})
+        return data
+
+
+# Helper functions for document conversion
+def image_from_doc(doc: dict) -> ImageDocument:
+    """Create ImageDocument from MongoDB document."""
+    if doc:
+        doc["_id"] = str(doc["_id"])
+    return ImageDocument(**doc) if doc else None
+
+
+def person_from_doc(doc: dict) -> PersonDocument:
+    """Create PersonDocument from MongoDB document."""
+    if doc:
+        doc["_id"] = str(doc["_id"])
+    return PersonDocument(**doc) if doc else None
+
+
+def face_from_doc(doc: dict) -> FaceDocument:
+    """Create FaceDocument from MongoDB document."""
+    if doc:
+        doc["_id"] = str(doc["_id"])
+    return FaceDocument(**doc) if doc else None
+

@@ -20,7 +20,7 @@ A Google Photos-like application that automatically detects faces in your photos
 | Frontend | React + TypeScript + Tailwind CSS |
 | Backend | Python FastAPI |
 | Face Detection/Recognition | `face_recognition` library (dlib) |
-| Database | SQLite (SQLAlchemy ORM) |
+| Database | MongoDB Atlas (Motor async driver) |
 | Image Storage | Local filesystem |
 
 ### System Architecture
@@ -47,24 +47,25 @@ A Google Photos-like application that automatically detects faces in your photos
 ┌─────────────────────────────────────────────────────────────┐
 │                      Data Layer                              │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │   SQLite    │  │   Image     │  │   Face Encodings    │  │
-│  │  Database   │  │   Storage   │  │   (128-d vectors)   │  │
+│  │  MongoDB    │  │   Image     │  │   Face Encodings    │  │
+│  │   Atlas     │  │   Storage   │  │   (128-d vectors)   │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Database Schema
+### Database Schema (MongoDB Collections)
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │   images     │     │    faces     │     │   persons    │
 ├──────────────┤     ├──────────────┤     ├──────────────┤
-│ id           │◄────│ image_id     │     │ id           │
-│ filename     │     │ id           │────►│ name         │
+│ _id          │◄────│ image_id     │     │ _id          │
+│ filename     │     │ _id          │────►│ name         │
 │ filepath     │     │ person_id    │     │ created_at   │
-│ uploaded_at  │     │ encoding     │     └──────────────┘
-│ thumbnail    │     │ bbox (x,y,w,h)│
-└──────────────┘     │ thumbnail    │
+│ uploaded_at  │     │ encoding     │     │ updated_at   │
+│ thumbnail    │     │ bbox         │     └──────────────┘
+│ processed    │     │ thumbnail    │
+└──────────────┘     │ created_at   │
                      └──────────────┘
 ```
 
@@ -113,8 +114,8 @@ ImageTag/
 │   │   ├── __init__.py
 │   │   ├── main.py              # FastAPI application entry
 │   │   ├── config.py            # Configuration settings
-│   │   ├── database.py          # Database connection & session
-│   │   ├── models.py            # SQLAlchemy ORM models
+│   │   ├── database.py          # MongoDB connection (Motor async)
+│   │   ├── models.py            # Pydantic document models
 │   │   ├── schemas.py           # Pydantic request/response schemas
 │   │   ├── services/
 │   │   │   ├── __init__.py

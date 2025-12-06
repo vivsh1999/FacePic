@@ -113,7 +113,7 @@ def create_image_thumbnail(source_path: str, filename: str) -> str:
 def create_face_thumbnail(
     source_path: str,
     bbox: dict,
-    face_id: int,
+    face_id: str,
     padding: float = 0.3
 ) -> str:
     """

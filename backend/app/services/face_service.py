@@ -91,10 +91,10 @@ def compare_faces(
 
 def find_best_match(
     known_encodings: List[np.ndarray],
-    known_person_ids: List[int],
+    known_person_ids: List[str],
     face_encoding: np.ndarray,
     tolerance: Optional[float] = None
-) -> Optional[Tuple[int, float]]:
+) -> Optional[Tuple[str, float]]:
     """
     Find the best matching person for a face encoding.
     

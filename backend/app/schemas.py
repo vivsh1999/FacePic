@@ -1,6 +1,6 @@
 """Pydantic schemas for request/response validation."""
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Union
 from pydantic import BaseModel, Field
 
 
@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class ProcessImagesRequest(BaseModel):
     """Request body for processing images."""
-    image_ids: Optional[List[int]] = None
+    image_ids: Optional[List[str]] = None
 
 
 # ============ Face Schemas ============
@@ -29,17 +29,17 @@ class FaceBase(BaseModel):
 
 class FaceCreate(FaceBase):
     """Schema for creating a face."""
-    image_id: int
+    image_id: str
     encoding: Optional[bytes] = None
 
 
 class FaceResponse(FaceBase):
     """Schema for face in API responses."""
-    id: int
-    image_id: int
-    person_id: Optional[int] = None
+    id: str
+    image_id: str
+    person_id: Optional[str] = None
     thumbnail_url: Optional[str] = None
-    created_at: datetime
+    created_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -64,7 +64,7 @@ class PersonUpdate(BaseModel):
 
 class PersonResponse(PersonBase):
     """Schema for person in API responses."""
-    id: int
+    id: str
     display_name: str
     photo_count: int
     face_count: int
@@ -83,8 +83,8 @@ class PersonDetail(PersonResponse):
 
 class PersonMergeRequest(BaseModel):
     """Request to merge two persons."""
-    source_person_id: int = Field(..., description="Person ID to merge from (will be deleted)")
-    target_person_id: int = Field(..., description="Person ID to merge into (will be kept)")
+    source_person_id: str = Field(..., description="Person ID to merge from (will be deleted)")
+    target_person_id: str = Field(..., description="Person ID to merge into (will be kept)")
 
 
 # ============ Image Schemas ============
@@ -107,7 +107,7 @@ class ImageCreate(ImageBase):
 
 class ImageResponse(ImageBase):
     """Schema for image in API responses."""
-    id: int
+    id: str
     thumbnail_url: Optional[str] = None
     image_url: str
     width: Optional[int] = None
@@ -149,7 +149,7 @@ class ProcessingStatus(BaseModel):
 
 class ProcessingRequest(BaseModel):
     """Request to process images."""
-    image_ids: Optional[List[int]] = None  # If None, process all pending
+    image_ids: Optional[List[str]] = None  # If None, process all pending
 
 
 class ProcessingResponse(BaseModel):

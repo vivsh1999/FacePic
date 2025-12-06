@@ -4,12 +4,16 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
+# Get the backend directory path
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
-    # Database
-    database_url: str = "sqlite:///./imagetag.db"
+    # MongoDB
+    mongodb_url: str = "mongodb://localhost:27017"
+    mongodb_database: str = "imagetag"
     
     # Storage paths
     upload_dir: str = "./uploads"
@@ -23,7 +27,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
     
     class Config:
-        env_file = ".env"
+        env_file = str(BACKEND_DIR / ".env")
         env_file_encoding = "utf-8"
     
     @property
