@@ -33,6 +33,62 @@ export const uploadImages = async (files: File[]): Promise<UploadResponse> => {
   return response.data;
 };
 
+/**
+ * Upload images with server-side face detection using InsightFace.
+ * This is faster and more accurate than client-side detection.
+ */
+export const uploadImagesServerDetect = async (
+  files: File[]
+): Promise<UploadWithFacesResponse> => {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
+
+  const response = await api.post<UploadWithFacesResponse>(
+    '/images/upload-server-detect',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+  return response.data;
+};
+
+export interface UploadAndProcessResponse {
+  uploaded: number;
+  failed: number;
+  images: Image[];
+  task_id: string | null;
+  errors: string[];
+}
+
+/**
+ * Upload images and start background face detection.
+ * Returns immediately with uploaded images, processing happens in background.
+ */
+export const uploadAndProcess = async (
+  files: File[]
+): Promise<UploadAndProcessResponse> => {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
+
+  const response = await api.post<UploadAndProcessResponse>(
+    '/images/upload-and-process',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+  return response.data;
+};
+
 export const getImages = async (
   skip = 0,
   limit = 50,
@@ -53,6 +109,28 @@ export const getImage = async (imageId: string): Promise<ImageDetail> => {
 
 export const deleteImage = async (imageId: string): Promise<void> => {
   await api.delete(`/images/${imageId}`);
+};
+
+/**
+ * Reprocess an existing image with new face data from client-side detection
+ */
+export const reprocessImage = async (
+  imageId: string,
+  faceData: UploadWithFacesRequest
+): Promise<UploadWithFacesResponse> => {
+  const formData = new FormData();
+  formData.append('face_data', JSON.stringify(faceData));
+
+  const response = await api.post<UploadWithFacesResponse>(
+    `/images/${imageId}/reprocess`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+  return response.data;
 };
 
 export const getProcessingStatus = async (): Promise<ProcessingStatus> => {
@@ -85,6 +163,70 @@ export const getTaskStatus = async (
   const response = await api.get<TaskStatusResponse>(
     `/images/process/status/${taskId}`
   );
+  return response.data;
+};
+
+export interface FaceData {
+  bbox: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+  encoding: number[];
+}
+
+export interface UploadWithFacesRequest {
+  faces: FaceData[];
+  width: number;
+  height: number;
+}
+
+export interface DetectedFaceInfo {
+  face_id: string;
+  thumbnail_url: string;
+  person_id: string;
+  person_name: string | null;
+  is_new_person: boolean;
+  image_id: string;
+}
+
+export interface UploadWithFacesResponse {
+  uploaded: number;
+  failed: number;
+  images: Image[];
+  faces_detected: number;
+  persons_created: number;
+  detected_faces: DetectedFaceInfo[];
+  errors: string[];
+}
+
+/**
+ * Upload images with pre-detected face data from client-side face detection
+ */
+export const uploadImagesWithFaces = async (
+  files: File[],
+  faceDataMap: Map<File, UploadWithFacesRequest>
+): Promise<UploadWithFacesResponse> => {
+  const formData = new FormData();
+  
+  // Add files
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
+  
+  // Add face data as JSON
+  const faceDataArray = files.map((file) => {
+    const data = faceDataMap.get(file);
+    return data || { faces: [], width: 0, height: 0 };
+  });
+  formData.append('face_data', JSON.stringify(faceDataArray));
+
+  const response = await api.post<UploadWithFacesResponse>('/images/upload-with-faces', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
   return response.data;
 };
 
@@ -146,6 +288,48 @@ export const mergePersons = async (
       source_person_id: sourcePersonId,
       target_person_id: targetPersonId,
     }
+  );
+  return response.data;
+};
+
+// ============ Duplicates API ============
+
+export interface DuplicateImage {
+  id: string;
+  filename: string;
+  original_filename: string;
+  thumbnail_url: string | null;
+  file_size: number | null;
+  uploaded_at: string;
+}
+
+export interface DuplicateGroup {
+  hash: string;
+  images: DuplicateImage[];
+}
+
+export interface DuplicatesResponse {
+  total_groups: number;
+  total_duplicates: number;
+  groups: DuplicateGroup[];
+}
+
+export interface DeleteDuplicatesResponse {
+  deleted: number;
+  errors: string[];
+}
+
+export const getDuplicates = async (): Promise<DuplicatesResponse> => {
+  const response = await api.get<DuplicatesResponse>('/images/duplicates');
+  return response.data;
+};
+
+export const deleteDuplicates = async (
+  imageIds: string[]
+): Promise<DeleteDuplicatesResponse> => {
+  const response = await api.post<DeleteDuplicatesResponse>(
+    '/images/duplicates/delete',
+    { image_ids: imageIds }
   );
   return response.data;
 };

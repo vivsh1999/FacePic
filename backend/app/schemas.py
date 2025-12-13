@@ -1,6 +1,6 @@
 """Pydantic schemas for request/response validation."""
 from datetime import datetime
-from typing import Optional, List, Union
+from typing import Optional, List, Union, TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 
@@ -167,6 +167,15 @@ class BackgroundProcessingResponse(BaseModel):
     image_count: int
 
 
+class UploadAndProcessResponse(BaseModel):
+    """Response for upload with background processing."""
+    uploaded: int
+    failed: int
+    images: List[ImageResponse]
+    task_id: Optional[str] = None  # Background processing task ID
+    errors: List[str] = []
+
+
 class TaskStatusResponse(BaseModel):
     """Response for background task status."""
     task_id: str
@@ -189,3 +198,75 @@ class StatsResponse(BaseModel):
     total_persons: int
     labeled_persons: int
     unlabeled_persons: int
+
+
+# ============ Duplicate Detection Schemas ============
+
+class DuplicateImage(BaseModel):
+    """Image in a duplicate group."""
+    id: str
+    filename: str
+    original_filename: str
+    thumbnail_url: Optional[str] = None
+    file_size: Optional[int] = None
+    uploaded_at: datetime
+
+
+class DuplicateGroup(BaseModel):
+    """Group of duplicate images."""
+    hash: str
+    images: List[DuplicateImage]
+
+
+class DuplicatesResponse(BaseModel):
+    """Response with all duplicate groups."""
+    total_groups: int
+    total_duplicates: int
+    groups: List[DuplicateGroup]
+
+
+class DeleteDuplicatesRequest(BaseModel):
+    """Request to delete specific duplicate images."""
+    image_ids: List[str]
+
+
+class DeleteDuplicatesResponse(BaseModel):
+    """Response after deleting duplicates."""
+    deleted: int
+    errors: List[str] = []
+
+
+# ============ Client-side Face Detection Schemas ============
+
+class ClientFaceData(BaseModel):
+    """Face data from client-side detection."""
+    bbox: BoundingBox
+    encoding: List[float]  # 128-dimensional face descriptor
+
+
+class ImageFaceData(BaseModel):
+    """Face data for a single uploaded image."""
+    faces: List[ClientFaceData]
+    width: int
+    height: int
+
+
+class DetectedFaceInfo(BaseModel):
+    """Info about a detected face after clustering."""
+    face_id: str
+    thumbnail_url: str
+    person_id: str
+    person_name: Optional[str] = None
+    is_new_person: bool = False
+    image_id: str
+
+
+class UploadWithFacesResponse(BaseModel):
+    """Response after uploading images with face data."""
+    uploaded: int
+    failed: int
+    images: List[ImageResponse]
+    faces_detected: int
+    persons_created: int
+    detected_faces: List[DetectedFaceInfo] = []
+    errors: List[str] = []

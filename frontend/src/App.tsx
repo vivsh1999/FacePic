@@ -5,6 +5,7 @@ import UploadPage from './pages/UploadPage'
 import GalleryPage from './pages/GalleryPage'
 import PeoplePage from './pages/PeoplePage'
 import PersonDetailPage from './pages/PersonDetailPage'
+import DuplicatesPage from './pages/DuplicatesPage'
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
         <Route path="gallery" element={<GalleryPage />} />
         <Route path="people" element={<PeoplePage />} />
         <Route path="people/:personId" element={<PersonDetailPage />} />
+        <Route path="duplicates" element={<DuplicatesPage />} />
       </Route>
     </Routes>
   )

@@ -20,8 +20,12 @@ class Settings(BaseSettings):
     thumbnail_dir: str = "./thumbnails"
     
     # Face recognition settings
-    face_recognition_tolerance: float = 0.6
+    face_recognition_tolerance: float = 0.6  # For 128-dim face-api.js embeddings
     face_recognition_model: str = "hog"  # 'hog' or 'cnn'
+    
+    # InsightFace settings (512-dim ArcFace embeddings)
+    insightface_tolerance: float = 0.4  # Cosine distance threshold (1 - similarity)
+    use_insightface: bool = True  # Use InsightFace for server-side detection
     
     # Server settings
     cors_origins: str = "http://localhost:5173,http://localhost:3000"

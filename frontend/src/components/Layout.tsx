@@ -1,11 +1,12 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Camera, Upload, Image, Users, Home } from 'lucide-react';
+import { Camera, Upload, Image, Users, Home, Copy } from 'lucide-react';
 
 const navItems = [
   { path: '/', icon: Home, label: 'Home' },
   { path: '/upload', icon: Upload, label: 'Upload' },
   { path: '/gallery', icon: Image, label: 'Gallery' },
   { path: '/people', icon: Users, label: 'People' },
+  { path: '/duplicates', icon: Copy, label: 'Duplicates' },
 ];
 
 export default function Layout() {

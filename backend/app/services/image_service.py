@@ -2,6 +2,7 @@
 import os
 import uuid
 import shutil
+import hashlib
 from pathlib import Path
 from typing import Optional, Tuple
 from PIL import Image as PILImage
@@ -172,3 +173,48 @@ def delete_face_thumbnail(thumbnail_path: str) -> None:
     """Delete a face thumbnail."""
     if thumbnail_path and os.path.exists(thumbnail_path):
         os.remove(thumbnail_path)
+
+
+def calculate_file_hash(filepath: str, chunk_size: int = 8192) -> str:
+    """
+    Calculate MD5 hash of a file for duplicate detection.
+    
+    Args:
+        filepath: Path to the file
+        chunk_size: Size of chunks to read
+    
+    Returns:
+        MD5 hash string
+    """
+    md5_hash = hashlib.md5()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            md5_hash.update(chunk)
+    return md5_hash.hexdigest()
+
+
+def calculate_image_hash(filepath: str) -> str:
+    """
+    Calculate a perceptual hash of an image for near-duplicate detection.
+    Uses a simple average hash (aHash) algorithm.
+    
+    Args:
+        filepath: Path to the image file
+    
+    Returns:
+        Hex string of the image hash
+    """
+    with PILImage.open(filepath) as img:
+        # Convert to grayscale and resize to 8x8
+        img = img.convert("L").resize((8, 8), PILImage.Resampling.LANCZOS)
+        pixels = list(img.getdata())
+        
+        # Calculate average pixel value
+        avg = sum(pixels) / len(pixels)
+        
+        # Create hash based on whether each pixel is above or below average
+        bits = "".join("1" if pixel >= avg else "0" for pixel in pixels)
+        
+        # Convert binary string to hex
+        return hex(int(bits, 2))[2:].zfill(16)
+

@@ -1,11 +1,22 @@
-"""Face detection and recognition service."""
+"""Face detection and recognition service.
+
+Note: This module requires face_recognition library for server-side face detection.
+If face_recognition is not installed, client-side face detection with face-api.js
+should be used instead via the /upload-with-faces endpoint.
+"""
 import numpy as np
 from typing import List, Tuple, Optional
-import face_recognition
 from PIL import Image as PILImage
 
 from ..config import get_settings
-from .image_service import create_face_thumbnail
+from .encoding_utils import encoding_to_bytes, bytes_to_encoding
+
+# Try to import face_recognition (optional dependency)
+try:
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+except ImportError:
+    FACE_RECOGNITION_AVAILABLE = False
 
 settings = get_settings()
 
@@ -14,6 +25,9 @@ def detect_faces(image_path: str) -> List[Tuple[Tuple[int, int, int, int], np.nd
     """
     Detect faces in an image and compute their encodings.
     
+    Requires face_recognition library. If not available, use client-side
+    face detection with face-api.js instead.
+    
     Args:
         image_path: Path to the image file
     
@@ -21,7 +35,16 @@ def detect_faces(image_path: str) -> List[Tuple[Tuple[int, int, int, int], np.nd
         List of tuples containing (bounding_box, encoding)
         bounding_box is (top, right, bottom, left)
         encoding is a 128-dimensional numpy array
+        
+    Raises:
+        RuntimeError: If face_recognition library is not installed
     """
+    if not FACE_RECOGNITION_AVAILABLE:
+        raise RuntimeError(
+            "face_recognition library is not installed. "
+            "Use client-side face detection with face-api.js via /upload-with-faces endpoint."
+        )
+    
     # Load image
     image = face_recognition.load_image_file(image_path)
     
@@ -46,14 +69,8 @@ def detect_faces(image_path: str) -> List[Tuple[Tuple[int, int, int, int], np.nd
     return results
 
 
-def encoding_to_bytes(encoding: np.ndarray) -> bytes:
-    """Convert numpy encoding array to bytes for storage."""
-    return encoding.tobytes()
-
-
-def bytes_to_encoding(data: bytes) -> np.ndarray:
-    """Convert bytes back to numpy encoding array."""
-    return np.frombuffer(data, dtype=np.float64)
+# Re-export encoding utilities for backward compatibility
+# (encoding_to_bytes and bytes_to_encoding are now in encoding_utils.py)
 
 
 def compare_faces(

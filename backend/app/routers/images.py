@@ -1,9 +1,11 @@
 """Image-related API endpoints."""
 import os
 import uuid
+import json
+import numpy as np
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
 from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
@@ -19,8 +21,17 @@ from ..schemas import (
     ProcessImagesRequest,
     BackgroundProcessingResponse,
     TaskStatusResponse,
+    UploadWithFacesResponse,
+    DetectedFaceInfo,
+    UploadAndProcessResponse,
+    DuplicatesResponse,
+    DuplicateGroup,
+    DuplicateImage,
+    DeleteDuplicatesRequest,
+    DeleteDuplicatesResponse,
 )
 from ..services import image_service, face_service
+from ..services.encoding_utils import encoding_to_bytes
 from ..services.clustering_service import cluster_faces
 from ..config import get_settings
 
@@ -108,6 +119,388 @@ async def upload_images(
     )
 
 
+@router.post("/upload-and-process", response_model=UploadAndProcessResponse)
+async def upload_and_process_background(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Upload images and start background face detection processing.
+    
+    This endpoint quickly saves images and returns immediately,
+    while face detection runs in the background using InsightFace.
+    """
+    uploaded = []
+    uploaded_ids = []
+    errors = []
+    
+    for file in files:
+        if not image_service.is_valid_image(file.filename):
+            errors.append(f"Invalid file type: {file.filename}")
+            continue
+        
+        try:
+            # Save the file
+            filepath, unique_filename, file_size = await image_service.save_upload_file(file)
+            
+            # Get image dimensions
+            width, height = image_service.get_image_dimensions(filepath)
+            mime_type = image_service.get_mime_type(filepath)
+            
+            # Create thumbnail
+            thumbnail_path = image_service.create_image_thumbnail(filepath, unique_filename)
+            
+            # Create document with processed=0 (pending)
+            image_doc = ImageDocument(
+                filename=unique_filename,
+                original_filename=file.filename,
+                filepath=filepath,
+                thumbnail_path=thumbnail_path,
+                width=width,
+                height=height,
+                file_size=file_size,
+                mime_type=mime_type,
+                processed=0,  # Pending processing
+            )
+            
+            # Insert into MongoDB
+            result = await db.images.insert_one(image_doc.to_dict())
+            image_id = str(result.inserted_id)
+            image_doc.id = image_id
+            
+            uploaded.append(_image_to_response(image_doc, 0))
+            uploaded_ids.append(image_id)
+            
+        except Exception as e:
+            errors.append(f"Failed to upload {file.filename}: {str(e)}")
+    
+    # Start background processing if any images were uploaded
+    task_id = None
+    if uploaded_ids:
+        task_id = str(uuid.uuid4())
+        background_tasks_status[task_id] = {
+            "task_id": task_id,
+            "status": "pending",
+            "progress": 0,
+            "total": len(uploaded_ids),
+            "processed": 0,
+            "faces_detected": 0,
+            "persons_created": 0,
+            "errors": [],
+            "completed_at": None,
+        }
+        background_tasks.add_task(_process_images_background, task_id, uploaded_ids)
+    
+    return UploadAndProcessResponse(
+        uploaded=len(uploaded),
+        failed=len(errors),
+        images=uploaded,
+        task_id=task_id,
+        errors=errors,
+    )
+
+
+@router.post("/upload-server-detect", response_model=UploadWithFacesResponse)
+async def upload_images_server_detect(
+    files: List[UploadFile] = File(...),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Upload images with server-side face detection using InsightFace.
+    
+    This endpoint performs fast, accurate face detection on the server
+    using InsightFace with ArcFace embeddings (512-dimensional).
+    """
+    from ..services import insightface_service
+    
+    uploaded = []
+    errors = []
+    total_faces = 0
+    new_face_ids = []
+    
+    for file in files:
+        if not image_service.is_valid_image(file.filename):
+            errors.append(f"Invalid file type: {file.filename}")
+            continue
+        
+        try:
+            # Save the file
+            filepath, unique_filename, file_size = await image_service.save_upload_file(file)
+            
+            # Get image dimensions
+            width, height = image_service.get_image_dimensions(filepath)
+            mime_type = image_service.get_mime_type(filepath)
+            
+            # Create thumbnail
+            thumbnail_path = image_service.create_image_thumbnail(filepath, unique_filename)
+            
+            # Create document
+            image_doc = ImageDocument(
+                filename=unique_filename,
+                original_filename=file.filename,
+                filepath=filepath,
+                thumbnail_path=thumbnail_path,
+                width=width,
+                height=height,
+                file_size=file_size,
+                mime_type=mime_type,
+                processed=1,  # Already processed
+            )
+            
+            # Insert into MongoDB
+            result = await db.images.insert_one(image_doc.to_dict())
+            image_id = str(result.inserted_id)
+            image_doc.id = image_id
+            
+            # Detect faces using InsightFace
+            detected_faces = insightface_service.detect_faces(filepath)
+            
+            for bbox, encoding in detected_faces:
+                top, right, bottom, left = bbox
+                # Convert numpy.int64 to Python int for MongoDB serialization
+                top, right, bottom, left = int(top), int(right), int(bottom), int(left)
+                
+                # Create face document
+                face_doc_data = {
+                    "image_id": image_id,
+                    "bbox_top": top,
+                    "bbox_right": right,
+                    "bbox_bottom": bottom,
+                    "bbox_left": left,
+                    "encoding": insightface_service.encoding_to_bytes(encoding),
+                    "created_at": datetime.utcnow(),
+                }
+                
+                face_result = await db.faces.insert_one(face_doc_data)
+                face_id = str(face_result.inserted_id)
+                
+                # Create face thumbnail
+                face_thumbnail_path = image_service.create_face_thumbnail(
+                    filepath,
+                    {"top": top, "right": right, "bottom": bottom, "left": left},
+                    face_id,
+                )
+                
+                # Update face with thumbnail path
+                await db.faces.update_one(
+                    {"_id": face_result.inserted_id},
+                    {"$set": {"thumbnail_path": face_thumbnail_path}}
+                )
+                
+                new_face_ids.append(face_id)
+                total_faces += 1
+            
+            uploaded.append(_image_to_response(image_doc, len(detected_faces)))
+            
+        except Exception as e:
+            errors.append(f"Failed to upload {file.filename}: {str(e)}")
+    
+    # Cluster new faces into persons
+    persons_created = 0
+    detected_faces_info: List[DetectedFaceInfo] = []
+    
+    if new_face_ids:
+        clustering_stats = await cluster_faces(db, new_face_ids)
+        persons_created = clustering_stats.get("new_persons_created", 0)
+        
+        # Fetch face details with person info
+        for face_id in new_face_ids:
+            face_doc = await db.faces.find_one({"_id": to_object_id(face_id)})
+            if face_doc:
+                person_id = face_doc.get("person_id")
+                person_name = None
+                is_new_person = False
+                
+                if person_id:
+                    person_doc = await db.persons.find_one({"_id": to_object_id(person_id)})
+                    if person_doc:
+                        person_name = person_doc.get("name")
+                        is_new_person = person_name is None or person_name == ""
+                
+                thumbnail_url = f"/api/images/faces/{face_id}/thumbnail" if face_doc.get("thumbnail_path") else ""
+                
+                detected_faces_info.append(DetectedFaceInfo(
+                    face_id=face_id,
+                    thumbnail_url=thumbnail_url,
+                    person_id=person_id or "",
+                    person_name=person_name,
+                    is_new_person=is_new_person,
+                    image_id=face_doc.get("image_id", ""),
+                ))
+    
+    return UploadWithFacesResponse(
+        uploaded=len(uploaded),
+        failed=len(errors),
+        images=uploaded,
+        faces_detected=total_faces,
+        persons_created=persons_created,
+        detected_faces=detected_faces_info,
+        errors=errors,
+    )
+
+
+@router.post("/upload-with-faces", response_model=UploadWithFacesResponse)
+async def upload_images_with_faces(
+    files: List[UploadFile] = File(...),
+    face_data: str = Form(...),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Upload images with pre-detected face data from client-side face detection.
+    
+    This endpoint receives images along with face bounding boxes and encodings
+    that were detected client-side using face-api.js, avoiding expensive 
+    server-side face detection.
+    """
+    uploaded = []
+    errors = []
+    total_faces = 0
+    new_face_ids = []
+    
+    # Parse face data JSON
+    try:
+        face_data_list = json.loads(face_data)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid face_data JSON: {str(e)}")
+    
+    if len(face_data_list) != len(files):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Mismatch: {len(files)} files but {len(face_data_list)} face data entries"
+        )
+    
+    for file, file_face_data in zip(files, face_data_list):
+        # Validate file type
+        if not image_service.is_valid_image(file.filename):
+            errors.append(f"Invalid file type: {file.filename}")
+            continue
+        
+        try:
+            # Save the file
+            filepath, unique_filename, file_size = await image_service.save_upload_file(file)
+            
+            # Get image dimensions from face data or from file
+            width = file_face_data.get("width") or 0
+            height = file_face_data.get("height") or 0
+            if not width or not height:
+                width, height = image_service.get_image_dimensions(filepath)
+            
+            mime_type = image_service.get_mime_type(filepath)
+            
+            # Create thumbnail
+            thumbnail_path = image_service.create_image_thumbnail(filepath, unique_filename)
+            
+            # Create image document
+            image_doc = ImageDocument(
+                filename=unique_filename,
+                original_filename=file.filename,
+                filepath=filepath,
+                thumbnail_path=thumbnail_path,
+                width=width,
+                height=height,
+                file_size=file_size,
+                mime_type=mime_type,
+                processed=1,  # Already processed on client
+            )
+            
+            # Insert image into MongoDB
+            result = await db.images.insert_one(image_doc.to_dict())
+            image_id = str(result.inserted_id)
+            image_doc.id = image_id
+            
+            # Process faces from client data
+            faces_in_image = file_face_data.get("faces", [])
+            for face_data_item in faces_in_image:
+                bbox = face_data_item.get("bbox", {})
+                encoding_list = face_data_item.get("encoding", [])
+                
+                # Convert encoding list to bytes for storage
+                encoding_array = np.array(encoding_list, dtype=np.float64)
+                encoding_bytes = encoding_array.tobytes()
+                
+                # Create face document
+                face_doc_data = {
+                    "image_id": image_id,
+                    "bbox_top": bbox.get("top", 0),
+                    "bbox_right": bbox.get("right", 0),
+                    "bbox_bottom": bbox.get("bottom", 0),
+                    "bbox_left": bbox.get("left", 0),
+                    "encoding": encoding_bytes,
+                    "created_at": datetime.utcnow(),
+                }
+                
+                face_result = await db.faces.insert_one(face_doc_data)
+                face_id = str(face_result.inserted_id)
+                
+                # Create face thumbnail
+                thumbnail_path = image_service.create_face_thumbnail(
+                    filepath,
+                    {"top": bbox.get("top", 0), "right": bbox.get("right", 0), 
+                     "bottom": bbox.get("bottom", 0), "left": bbox.get("left", 0)},
+                    face_id,
+                )
+                
+                # Update face with thumbnail path
+                await db.faces.update_one(
+                    {"_id": face_result.inserted_id},
+                    {"$set": {"thumbnail_path": thumbnail_path}}
+                )
+                
+                new_face_ids.append(face_id)
+                total_faces += 1
+            
+            uploaded.append(_image_to_response(image_doc, len(faces_in_image)))
+            
+        except Exception as e:
+            errors.append(f"Failed to upload {file.filename}: {str(e)}")
+    
+    # Cluster new faces into persons
+    persons_created = 0
+    detected_faces: List[DetectedFaceInfo] = []
+    
+    if new_face_ids:
+        from ..services.clustering_service import cluster_faces
+        clustering_stats = await cluster_faces(db, new_face_ids)
+        persons_created = clustering_stats.get("new_persons_created", 0)
+        
+        # Fetch face details with person info
+        for face_id in new_face_ids:
+            face_doc = await db.faces.find_one({"_id": to_object_id(face_id)})
+            if face_doc:
+                person_id = face_doc.get("person_id")
+                person_name = None
+                is_new_person = False
+                
+                if person_id:
+                    person_doc = await db.persons.find_one({"_id": to_object_id(person_id)})
+                    if person_doc:
+                        person_name = person_doc.get("name")
+                        # Check if this is a new person (no name set)
+                        is_new_person = person_name is None or person_name == ""
+                
+                thumbnail_url = f"/api/images/faces/{face_id}/thumbnail" if face_doc.get("thumbnail_path") else ""
+                
+                detected_faces.append(DetectedFaceInfo(
+                    face_id=face_id,
+                    thumbnail_url=thumbnail_url,
+                    person_id=person_id or "",
+                    person_name=person_name,
+                    is_new_person=is_new_person,
+                    image_id=face_doc.get("image_id", ""),
+                ))
+    
+    return UploadWithFacesResponse(
+        uploaded=len(uploaded),
+        failed=len(errors),
+        images=uploaded,
+        faces_detected=total_faces,
+        persons_created=persons_created,
+        detected_faces=detected_faces,
+        errors=errors,
+    )
+
+
 @router.get("", response_model=List[ImageResponse])
 async def list_images(
     skip: int = 0,
@@ -151,6 +544,108 @@ async def get_processing_status(db: AsyncIOMotorDatabase = Depends(get_db)):
         failed=failed,
         total_faces_detected=total_faces,
     )
+
+
+@router.get("/duplicates", response_model=DuplicatesResponse)
+async def find_duplicates(db: AsyncIOMotorDatabase = Depends(get_db)):
+    """
+    Find duplicate images based on file hash.
+    
+    Returns groups of images that are exact duplicates.
+    """
+    from collections import defaultdict
+    
+    # Get all images
+    cursor = db.images.find({})
+    images = await cursor.to_list(length=10000)
+    
+    # Group by file hash
+    hash_groups: dict = defaultdict(list)
+    
+    for doc in images:
+        image = image_from_doc(doc)
+        if image.filepath and os.path.exists(image.filepath):
+            try:
+                file_hash = image_service.calculate_file_hash(image.filepath)
+                hash_groups[file_hash].append(DuplicateImage(
+                    id=image.id,
+                    filename=image.filename,
+                    original_filename=image.original_filename,
+                    thumbnail_url=f"/api/images/{image.id}/thumbnail" if image.thumbnail_path else None,
+                    file_size=image.file_size,
+                    uploaded_at=image.uploaded_at,
+                ))
+            except Exception as e:
+                print(f"Error hashing {image.filepath}: {e}")
+    
+    # Filter to only groups with duplicates (more than 1 image)
+    duplicate_groups = [
+        DuplicateGroup(hash=h, images=imgs)
+        for h, imgs in hash_groups.items()
+        if len(imgs) > 1
+    ]
+    
+    # Sort groups by number of duplicates (descending)
+    duplicate_groups.sort(key=lambda g: len(g.images), reverse=True)
+    
+    # Count total duplicates (excluding one original per group)
+    total_duplicates = sum(len(g.images) - 1 for g in duplicate_groups)
+    
+    return DuplicatesResponse(
+        total_groups=len(duplicate_groups),
+        total_duplicates=total_duplicates,
+        groups=duplicate_groups,
+    )
+
+
+@router.post("/duplicates/delete", response_model=DeleteDuplicatesResponse)
+async def delete_duplicates(
+    request: DeleteDuplicatesRequest,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Delete specified duplicate images.
+    
+    Also removes associated faces and their thumbnails.
+    """
+    deleted = 0
+    errors = []
+    
+    for image_id in request.image_ids:
+        oid = to_object_id(image_id)
+        if not oid:
+            errors.append(f"Invalid image ID: {image_id}")
+            continue
+        
+        doc = await db.images.find_one({"_id": oid})
+        if not doc:
+            errors.append(f"Image not found: {image_id}")
+            continue
+        
+        image = image_from_doc(doc)
+        
+        try:
+            # Delete associated faces and their thumbnails
+            faces_cursor = db.faces.find({"image_id": image_id})
+            faces = await faces_cursor.to_list(length=1000)
+            
+            for face in faces:
+                if face.get("thumbnail_path"):
+                    image_service.delete_face_thumbnail(face["thumbnail_path"])
+            
+            await db.faces.delete_many({"image_id": image_id})
+            
+            # Delete image files
+            image_service.delete_image_files(image.filepath, image.thumbnail_path)
+            
+            # Delete image document
+            await db.images.delete_one({"_id": oid})
+            
+            deleted += 1
+        except Exception as e:
+            errors.append(f"Failed to delete {image_id}: {str(e)}")
+    
+    return DeleteDuplicatesResponse(deleted=deleted, errors=errors)
 
 
 @router.get("/{image_id}", response_model=ImageDetail)
@@ -263,6 +758,138 @@ async def delete_image(image_id: str, db: AsyncIOMotorDatabase = Depends(get_db)
     await db.images.delete_one({"_id": oid})
     
     return {"message": "Image deleted successfully"}
+
+
+@router.post("/{image_id}/reprocess", response_model=UploadWithFacesResponse)
+async def reprocess_image(
+    image_id: str,
+    face_data: str = Form(...),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Reprocess an existing image with new face data from client-side detection.
+    Deletes existing faces and creates new ones from the provided face data.
+    """
+    oid = to_object_id(image_id)
+    if not oid:
+        raise HTTPException(status_code=400, detail="Invalid image ID")
+    
+    doc = await db.images.find_one({"_id": oid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    image = image_from_doc(doc)
+    errors = []
+    new_face_ids = []
+    
+    try:
+        # Parse face data
+        face_data_parsed = json.loads(face_data)
+        faces_list = face_data_parsed.get("faces", [])
+        
+        # Delete existing face thumbnails
+        faces_cursor = db.faces.find({"image_id": image_id})
+        existing_faces = await faces_cursor.to_list(length=1000)
+        for face in existing_faces:
+            if face.get("thumbnail_path"):
+                image_service.delete_face_thumbnail(face["thumbnail_path"])
+        
+        # Delete existing faces from database
+        await db.faces.delete_many({"image_id": image_id})
+        
+        # Process new faces from client data
+        for face_data_item in faces_list:
+            bbox = face_data_item.get("bbox", {})
+            encoding_list = face_data_item.get("encoding", [])
+            
+            # Convert encoding list to bytes for storage
+            encoding_array = np.array(encoding_list, dtype=np.float64)
+            encoding_bytes = encoding_array.tobytes()
+            
+            # Create face document
+            face_doc_data = {
+                "image_id": image_id,
+                "bbox_top": bbox.get("top", 0),
+                "bbox_right": bbox.get("right", 0),
+                "bbox_bottom": bbox.get("bottom", 0),
+                "bbox_left": bbox.get("left", 0),
+                "encoding": encoding_bytes,
+                "created_at": datetime.utcnow(),
+            }
+            
+            face_result = await db.faces.insert_one(face_doc_data)
+            face_id = str(face_result.inserted_id)
+            
+            # Create face thumbnail
+            thumbnail_path = image_service.create_face_thumbnail(
+                image.filepath,
+                {"top": bbox.get("top", 0), "right": bbox.get("right", 0), 
+                 "bottom": bbox.get("bottom", 0), "left": bbox.get("left", 0)},
+                face_id,
+            )
+            
+            # Update face with thumbnail path
+            await db.faces.update_one(
+                {"_id": face_result.inserted_id},
+                {"$set": {"thumbnail_path": thumbnail_path}}
+            )
+            
+            new_face_ids.append(face_id)
+        
+        # Update image processed status
+        await db.images.update_one(
+            {"_id": oid},
+            {"$set": {"processed": 1}}
+        )
+        
+    except Exception as e:
+        errors.append(f"Failed to reprocess: {str(e)}")
+    
+    # Cluster new faces into persons
+    persons_created = 0
+    detected_faces: List[DetectedFaceInfo] = []
+    
+    if new_face_ids:
+        clustering_stats = await cluster_faces(db, new_face_ids)
+        persons_created = clustering_stats.get("new_persons_created", 0)
+        
+        # Fetch face details with person info
+        for face_id in new_face_ids:
+            face_doc = await db.faces.find_one({"_id": to_object_id(face_id)})
+            if face_doc:
+                person_id = face_doc.get("person_id")
+                person_name = None
+                is_new_person = False
+                
+                if person_id:
+                    person_doc = await db.persons.find_one({"_id": to_object_id(person_id)})
+                    if person_doc:
+                        person_name = person_doc.get("name")
+                        is_new_person = person_name is None or person_name == ""
+                
+                thumbnail_url = f"/api/images/faces/{face_id}/thumbnail" if face_doc.get("thumbnail_path") else ""
+                
+                detected_faces.append(DetectedFaceInfo(
+                    face_id=face_id,
+                    thumbnail_url=thumbnail_url,
+                    person_id=person_id or "",
+                    person_name=person_name,
+                    is_new_person=is_new_person,
+                    image_id=image_id,
+                ))
+    
+    # Get updated face count
+    face_count = await db.faces.count_documents({"image_id": image_id})
+    
+    return UploadWithFacesResponse(
+        uploaded=1,
+        failed=len(errors),
+        images=[_image_to_response(image, face_count)],
+        faces_detected=len(new_face_ids),
+        persons_created=persons_created,
+        detected_faces=detected_faces,
+        errors=errors,
+    )
 
 
 @router.post("/process", response_model=ProcessingResponse)

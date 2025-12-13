@@ -8,7 +8,7 @@ from bson import ObjectId
 from ..models import PersonDocument, person_from_doc
 from ..database import to_object_id
 from ..config import get_settings
-from .face_service import bytes_to_encoding
+from .encoding_utils import bytes_to_encoding
 
 settings = get_settings()
 
@@ -65,11 +65,15 @@ async def cluster_faces(db: AsyncIOMotorDatabase, face_ids: Optional[List[str]] 
         face_id = str(face["_id"])
         stats["faces_processed"] += 1
         
+        # Determine tolerance based on encoding dimension
+        # 512-dim = InsightFace (cosine distance), 128-dim = face-api.js (Euclidean)
+        tolerance = settings.insightface_tolerance if len(face_encoding) == 512 else settings.face_recognition_tolerance
+        
         # Try to find a matching person
         best_match = _find_matching_person(
             face_encoding, 
             person_encodings,
-            settings.face_recognition_tolerance
+            tolerance
         )
         
         if best_match:
@@ -157,11 +161,15 @@ def cluster_faces_sync(db, face_ids: Optional[List[str]] = None) -> Dict[str, in
         face_id = str(face["_id"])
         stats["faces_processed"] += 1
         
+        # Determine tolerance based on encoding dimension
+        # 512-dim = InsightFace (cosine distance), 128-dim = face-api.js (Euclidean)
+        tolerance = settings.insightface_tolerance if len(face_encoding) == 512 else settings.face_recognition_tolerance
+        
         # Try to find a matching person
         best_match = _find_matching_person(
             face_encoding, 
             person_encodings,
-            settings.face_recognition_tolerance
+            tolerance
         )
         
         if best_match:
@@ -210,18 +218,35 @@ def _find_matching_person(
 ) -> Optional[Tuple[str, float]]:
     """
     Find the best matching person for a face encoding.
+    
+    Automatically detects encoding type:
+    - 128-dim (face-api.js): Uses Euclidean distance
+    - 512-dim (InsightFace): Uses cosine distance (1 - similarity)
     """
     best_match = None
     best_distance = float('inf')
+    
+    # Detect encoding type based on dimension
+    is_insightface = len(face_encoding) == 512
     
     for person_id, encodings in person_encodings.items():
         if not encodings:
             continue
         
+        # Skip if encoding dimensions don't match
+        if len(encodings[0]) != len(face_encoding):
+            continue
+        
         # Calculate distance to each face of this person
         distances = []
         for enc in encodings:
-            distance = np.linalg.norm(face_encoding - enc)
+            if is_insightface:
+                # Cosine distance for InsightFace (embeddings are normalized)
+                similarity = np.dot(face_encoding, enc)
+                distance = 1 - similarity
+            else:
+                # Euclidean distance for face-api.js
+                distance = np.linalg.norm(face_encoding - enc)
             distances.append(distance)
         
         # Use minimum distance
