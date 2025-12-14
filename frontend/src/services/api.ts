@@ -13,6 +13,8 @@ import type {
   TaskStatusResponse,
 } from '../types';
 
+export type { TaskStatusResponse };
+
 const api = axios.create({
   baseURL: '/api',
 });

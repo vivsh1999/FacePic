@@ -1,11 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Loader2, Users, Trash2, RefreshCw, ImageOff, RotateCcw } from 'lucide-react';
+import { Loader2, Users, Trash2, RefreshCw, ImageOff, RotateCcw, Grid, List, Calendar, FileText, SortAsc, SortDesc } from 'lucide-react';
 import { getImages, deleteImage, reprocessImage, type UploadWithFacesRequest } from '../services/api';
 import { detectFaces, loadModels, areModelsLoaded } from '../services/faceDetection';
 import type { Image } from '../types';
 
 const IMAGES_PER_PAGE = 20;
+
+type ViewMode = 'grid' | 'list';
+type SortField = 'date' | 'name' | 'faces';
+type SortOrder = 'asc' | 'desc';
 
 export default function Gallery() {
   const [images, setImages] = useState<Image[]>([]);
@@ -17,6 +21,11 @@ export default function Gallery() {
   const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  
+  // View and sort state
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [sortField, setSortField] = useState<SortField>('date');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
   const fetchImages = useCallback(async (skip: number, append = false) => {
     try {
@@ -140,6 +149,33 @@ export default function Gallery() {
     fetchImages(0);
   };
 
+  // Sort images
+  const sortedImages = useMemo(() => {
+    const sorted = [...images].sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortField) {
+        case 'date':
+          comparison = new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime();
+          break;
+        case 'name':
+          comparison = a.original_filename.localeCompare(b.original_filename);
+          break;
+        case 'faces':
+          comparison = a.face_count - b.face_count;
+          break;
+      }
+      
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+    
+    return sorted;
+  }, [images, sortField, sortOrder]);
+
+  const toggleSortOrder = () => {
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
@@ -183,23 +219,103 @@ export default function Gallery() {
 
   return (
     <div className="space-y-4">
-      {/* Header with refresh */}
-      <div className="flex items-center justify-between">
+      {/* Header with view/sort controls */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <p className="text-sm text-slate-500">
           {images.length} {images.length === 1 ? 'photo' : 'photos'}
         </p>
-        <button
-          onClick={handleRefresh}
-          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Sort options */}
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+            <button
+              onClick={() => setSortField('date')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                sortField === 'date'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+              title="Sort by date"
+            >
+              <Calendar className="h-3 w-3" />
+              Date
+            </button>
+            <button
+              onClick={() => setSortField('name')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                sortField === 'name'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+              title="Sort by name"
+            >
+              <FileText className="h-3 w-3" />
+              Name
+            </button>
+            <button
+              onClick={() => setSortField('faces')}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                sortField === 'faces'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+              title="Sort by face count"
+            >
+              <Users className="h-3 w-3" />
+              Faces
+            </button>
+          </div>
+          
+          {/* Sort order */}
+          <button
+            onClick={toggleSortOrder}
+            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+          >
+            {sortOrder === 'asc' ? <SortAsc className="h-4 w-4" /> : <SortDesc className="h-4 w-4" />}
+          </button>
+          
+          {/* View mode toggle */}
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-1.5 rounded transition-colors ${
+                viewMode === 'grid'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+              title="Grid view"
+            >
+              <Grid className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-1.5 rounded transition-colors ${
+                viewMode === 'list'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+              title="List view"
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
+          
+          {/* Refresh */}
+          <button
+            onClick={handleRefresh}
+            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Image Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-        {images.map((image) => (
+      {viewMode === 'grid' && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {sortedImages.map((image) => (
           <div
             key={image.id}
             className="relative group aspect-square rounded-xl overflow-hidden bg-slate-100 shadow-sm hover:shadow-lg transition-all duration-200 hover:scale-[1.02]"
@@ -280,6 +396,92 @@ export default function Gallery() {
           </div>
         ))}
       </div>
+      )}
+
+      {/* List View */}
+      {viewMode === 'list' && (
+        <div className="space-y-2">
+          {sortedImages.map((image) => (
+            <div
+              key={image.id}
+              className="flex items-center gap-4 p-3 bg-white rounded-lg shadow-sm hover:shadow-md transition-all group"
+            >
+              {/* Thumbnail */}
+              <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden bg-slate-100">
+                <img
+                  src={image.thumbnail_url || image.image_url}
+                  alt={image.original_filename}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                {reprocessingId === image.id && (
+                  <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                    <Loader2 className="h-5 w-5 text-white animate-spin" />
+                  </div>
+                )}
+              </div>
+              
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-slate-900 truncate">{image.original_filename}</p>
+                <div className="flex items-center gap-3 text-sm text-slate-500">
+                  <span>{new Date(image.uploaded_at).toLocaleDateString()}</span>
+                  {image.width && image.height && (
+                    <span>{image.width} × {image.height}</span>
+                  )}
+                  {image.file_size && (
+                    <span>{(image.file_size / 1024 / 1024).toFixed(1)} MB</span>
+                  )}
+                </div>
+              </div>
+              
+              {/* Face count */}
+              {image.face_count > 0 && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded-full">
+                  <Users className="h-3 w-3 text-slate-500" />
+                  <span className="text-xs font-medium text-slate-600">{image.face_count}</span>
+                </div>
+              )}
+              
+              {/* Processing status */}
+              {image.processed === 0 && (
+                <div className="flex items-center gap-1 px-2 py-1 bg-amber-100 rounded-full">
+                  <Loader2 className="h-3 w-3 text-amber-600 animate-spin" />
+                  <span className="text-xs font-medium text-amber-700">Processing</span>
+                </div>
+              )}
+              
+              {/* Actions */}
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => handleReprocess(image)}
+                  disabled={reprocessingId === image.id}
+                  className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                  title="Reprocess faces"
+                >
+                  {reprocessingId === image.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                </button>
+                <button
+                  onClick={() => handleDelete(image.id)}
+                  disabled={deletingId === image.id}
+                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                  title="Delete image"
+                >
+                  {deletingId === image.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Load more trigger / Loading indicator */}
       <div ref={loadMoreRef} className="py-8 flex justify-center">

@@ -503,7 +503,7 @@ export default function ImageUpload() {
                   <p className="font-medium text-red-800">Face detection failed</p>
                   {taskStatus.errors.length > 0 && (
                     <ul className="mt-2 text-sm text-red-700 list-disc list-inside">
-                      {taskStatus.errors.map((err, i) => (
+                      {taskStatus.errors.map((err: string, i: number) => (
                         <li key={i}>{err}</li>
                       ))}
                     </ul>

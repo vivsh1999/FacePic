@@ -74,7 +74,21 @@ async def list_persons(
     if search:
         query["name"] = {"$regex": search, "$options": "i"}
     
-    cursor = db.persons.find(query).sort("created_at", -1).skip(skip).limit(limit)
+    # Sort: named persons first (name exists), then by created_at descending
+    # We use aggregation pipeline for more control
+    pipeline = [
+        {"$match": query},
+        {
+            "$addFields": {
+                "has_name": {"$cond": [{"$ifNull": ["$name", False]}, 1, 0]}
+            }
+        },
+        {"$sort": {"has_name": -1, "created_at": -1}},
+        {"$skip": skip},
+        {"$limit": limit}
+    ]
+    
+    cursor = db.persons.aggregate(pipeline)
     persons = await cursor.to_list(length=limit)
     
     result = []
