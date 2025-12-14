@@ -4,6 +4,8 @@ FROM python:3.12-slim
 # Install minimal system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
+    build-essential \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
