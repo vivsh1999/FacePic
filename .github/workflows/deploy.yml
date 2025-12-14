@@ -11,7 +11,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  TF_WORKING_DIR: 'iac/terraform'
+  TF_WORKING_DIR: 'iac'
 
 jobs:
   # Job to detect which files have changed
