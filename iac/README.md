@@ -28,7 +28,9 @@ Create a `terraform.tfvars` file from the example:
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` and fill in your details:
+Edit `terraform.tfvars` and fill in your details.
+**Note**: While `terraform.tfvars` is used to initially create the secrets in AWS Secrets Manager, you should **NOT** commit this file to Git. Add it to `.gitignore`.
+
 - `cloudflare_api_token`: Your Cloudflare API Token.
 - `domain_name`: Your domain (e.g., `example.com`).
 - `subdomain`: Subdomain for the app (e.g., `facepic`).

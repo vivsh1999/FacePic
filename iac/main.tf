@@ -99,7 +99,7 @@ resource "cloudflare_record" "cert_validation" {
 
   zone_id = data.cloudflare_zone.domain.id
   name    = each.value.name
-  value   = each.value.record
+  content   = each.value.record
   type    = each.value.type
   proxied = false
 }
@@ -244,6 +244,20 @@ resource "aws_cloudfront_distribution" "main" {
   }
 }
 
+# --- Secrets Manager ---
+resource "aws_secretsmanager_secret" "app_secrets" {
+  name                    = "${var.project_name}-secrets"
+  recovery_window_in_days = 0 # Force delete for this example
+}
+
+resource "aws_secretsmanager_secret_version" "app_secrets" {
+  secret_id = aws_secretsmanager_secret.app_secrets.id
+  secret_string = jsonencode({
+    MONGODB_URL      = var.mongodb_url
+    CLOUDFLARE_TOKEN = var.cloudflare_api_token
+  })
+}
+
 # --- IAM Roles ---
 resource "aws_iam_role" "ecs_execution_role" {
   name = "${var.project_name}-execution-role"
@@ -257,6 +271,26 @@ resource "aws_iam_role" "ecs_execution_role" {
         Principal = {
           Service = "ecs-tasks.amazonaws.com"
         }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_execution_secrets_policy" {
+  name = "${var.project_name}-secrets-policy"
+  role = aws_iam_role.ecs_execution_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          aws_secretsmanager_secret.app_secrets.arn
+        ]
       }
     ]
   })
@@ -392,10 +426,14 @@ resource "aws_ecs_task_definition" "backend" {
         }
       ]
       environment = [
-        { name = "MONGODB_URL", value = var.mongodb_url },
         { name = "MONGODB_DATABASE", value = "imagetag" },
-        # CORS not strictly needed if same origin, but good to have
         { name = "CORS_ORIGINS", value = "https://${var.subdomain}.${var.domain_name}" }
+      ]
+      secrets = [
+        {
+          name      = "MONGODB_URL"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:MONGODB_URL::"
+        }
       ]
       logConfiguration = {
         logDriver = "awslogs"
