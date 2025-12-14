@@ -1,0 +1,6 @@
+aws_region           = "us-east-1"
+project_name         = "facepic"
+cloudflare_api_token = "your-cloudflare-api-token"
+domain_name          = "example.com"
+subdomain            = "facepic"
+mongodb_url          = "mongodb+srv://user:pass@cluster.mongodb.net/imagetag?retryWrites=true&w=majority"
