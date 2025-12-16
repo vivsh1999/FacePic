@@ -4,3 +4,10 @@ cloudflare_api_token = "your-cloudflare-api-token"
 domain_name          = "example.com"
 subdomain            = "facepic"
 mongodb_url          = "mongodb+srv://user:pass@cluster.mongodb.net/imagetag?retryWrites=true&w=majority"
+
+# --- GCP Deployment ---
+gcp_project_id       = "your-gcp-project-id"
+gcp_region           = "us-central1"
+
+# --- Docker Image Tag ---
+image_tag            = "latest"
