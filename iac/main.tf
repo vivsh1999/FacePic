@@ -1,51 +1,34 @@
-# --- Cloud Run Service (Backend) ---
-resource "google_cloud_run_service" "backend" {
-  name     = "${var.project_name}-backend"
-  location = var.gcp_region
-
-  template {
-    spec {
-      containers {
-        image = "ghcr.io/${var.project_name}/facepic-backend:${var.image_tag}"
-        env {
-          name  = "MONGODB_URL"
-          value = var.mongodb_url
-        }
-        env {
-          name  = "MONGODB_DATABASE"
-          value = "imagetag"
-        }
-        env {
-          name  = "CORS_ORIGINS"
-          value = "https://${var.subdomain}.${var.domain_name}"
-        }
-        ports {
-          container_port = 8000
-        }
-      }
-    }
-  }
-
-  traffic {
-    percent         = 100
-    latest_revision = true
-  }
-
-  autogenerate_revision_name = true
+# --- Cloudflare Provider ---
+provider "cloudflare" {
+  api_token = var.cloudflare_api_token
+}
+# --- TEMP: AWS Provider for Resource Cleanup ---
+provider "aws" {
+  region = var.aws_region
 }
 
-# Allow unauthenticated invocations
-resource "google_cloud_run_service_iam_member" "noauth" {
-  location        = google_cloud_run_service.backend.location
-  project         = var.gcp_project_id
-  service         = google_cloud_run_service.backend.name
-  role            = "roles/run.invoker"
-  member          = "allUsers"
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+# --- Cloudflare DNS for Pages Custom Domain ---
+data "cloudflare_zone" "domain" {
+  name = var.domain_name
 }
 
-# --- Google Cloud Provider (for Cloud Run) ---
-provider "google" {
-  project = var.gcp_project_id
-  region  = var.gcp_region
+resource "cloudflare_record" "pages_custom_domain" {
+  zone_id = data.cloudflare_zone.domain.id
+  name    = "facepic"
+  type    = "CNAME"
+  content = "facepic-frontend.pages.dev"
+  proxied = true
 }
+
+# --- Cloudflare R2 Bucket ---
+resource "cloudflare_r2_bucket" "facepic_images" {
+  account_id = var.cloudflare_account_id
+  name       = "facepic"
+  location   = "ENAM"
+}
+
 

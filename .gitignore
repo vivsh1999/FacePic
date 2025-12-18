@@ -6,6 +6,7 @@ __pycache__/
 .pytest_cache/
 
 # Environment
+# ignore all .env 
 .env
 .env.local
 .env.*.local
@@ -17,6 +18,7 @@ __pycache__/
 
 # Uploads and generated files
 backend/uploads/*
+dockercache/
 backend/thumbnails/*
 !backend/uploads/.gitkeep
 !backend/thumbnails/.gitkeep

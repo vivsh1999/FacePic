@@ -13,11 +13,19 @@ class Settings(BaseSettings):
     
     # MongoDB
     mongodb_url: str = "mongodb://localhost:27017"
-    mongodb_database: str = "imagetag"
+    mongodb_database: str = "facepic"
     
     # Storage paths
     upload_dir: str = "./uploads"
     thumbnail_dir: str = "./thumbnails"
+    import_dir: str = "/app/import_images"
+    processed_log_file: str = "/app/uploads/processed_log.jsonl"
+
+    # R2 Storage
+    r2_account_id: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket_name: str = "facepic"
     
     # Face recognition settings
     face_recognition_tolerance: float = 0.6  # For 128-dim face-api.js embeddings

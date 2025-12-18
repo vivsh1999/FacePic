@@ -29,6 +29,26 @@ class BoundingBox(BaseModel):
     left: int
 
 
+class FolderDocument(BaseModel):
+    """Model for storing folder structure."""
+    
+    id: Optional[str] = Field(default=None, alias="_id")
+    name: str
+    parent_id: Optional[str] = None
+    path: str  # Materialized path (e.g., "/Vacations/2023")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    class Config:
+        populate_by_name = True
+        json_encoders = {ObjectId: str}
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for MongoDB insert."""
+        data = self.model_dump(by_alias=True, exclude={"id"})
+        return data
+
+
 class ImageDocument(BaseModel):
     """Model for storing uploaded images."""
     
@@ -43,6 +63,10 @@ class ImageDocument(BaseModel):
     mime_type: Optional[str] = None
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
     processed: int = 0  # 0: pending, 1: processed, -1: failed
+    is_uploaded: bool = Field(default=True) # Whether the file is uploaded to R2
+    relative_path: Optional[str] = None # Path relative to import directory, for re-uploading
+    metadata: Dict[str, Any] = Field(default_factory=dict)  # EXIF and other metadata
+    folder_id: Optional[str] = None  # Reference to FolderDocument
     
     class Config:
         populate_by_name = True
@@ -62,6 +86,7 @@ class PersonDocument(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     representative_face_id: Optional[str] = None  # Best face for thumbnail
+    metadata: Dict[str, Any] = Field(default_factory=dict)  # Additional person info
     
     class Config:
         populate_by_name = True
@@ -101,6 +126,7 @@ class FaceDocument(BaseModel):
     confidence: Optional[float] = None
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    metadata: Dict[str, Any] = Field(default_factory=dict)  # Landmarks, pose, age, gender, etc.
     
     class Config:
         populate_by_name = True

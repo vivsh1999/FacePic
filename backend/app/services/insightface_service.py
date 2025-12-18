@@ -4,24 +4,69 @@ from typing import List, Tuple, Optional
 from PIL import Image
 import os
 
+import io
+import sys
+import contextlib
+
 # Lazy loading of InsightFace
 _app = None
+
+
+@contextlib.contextmanager
+def suppress_stdout():
+    with open(os.devnull, "w") as devnull:
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = devnull
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
 
 def get_face_analyzer():
     """Get or initialize the InsightFace analyzer (lazy loading)."""
     global _app
     if _app is None:
-        from insightface.app import FaceAnalysis
-        
-        # Use buffalo_l model - good balance of speed and accuracy
-        _app = FaceAnalysis(
-            name='buffalo_l',
-            providers=['CPUExecutionProvider']  # Use CPU, add CUDAExecutionProvider for GPU
-        )
-        # ctx_id=0 for GPU, -1 for CPU
-        _app.prepare(ctx_id=-1, det_size=(640, 640))
+        with suppress_stdout():
+            from insightface.app import FaceAnalysis
+            
+            # Use buffalo_l model - good balance of speed and accuracy
+            _app = FaceAnalysis(
+                name='buffalo_l',
+                providers=['CPUExecutionProvider']  # Use CPU, add CUDAExecutionProvider for GPU
+            )
+            # ctx_id=0 for GPU, -1 for CPU
+            _app.prepare(ctx_id=-1, det_size=(640, 640))
     return _app
+
+
+def analyze_image(image_bytes: bytes):
+    """
+    Analyze image bytes and return full face objects.
+    
+    Args:
+        image_bytes: Image data in bytes
+        
+    Returns:
+        List of InsightFace face objects
+    """
+    try:
+        # Load image
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        img_array = np.array(img)
+        
+        # Detect faces
+        app = get_face_analyzer()
+        faces = app.get(img_array)
+        return faces
+    except Exception as e:
+        print(f"Error analyzing image: {e}")
+        return []
 
 
 def detect_faces(image_path: str) -> List[Tuple[Tuple[int, int, int, int], np.ndarray]]:

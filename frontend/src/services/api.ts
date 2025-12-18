@@ -21,75 +21,60 @@ const api = axios.create({
 
 // ============ Images API ============
 
+/**
+ * Upload images directly to R2 via presigned URLs.
+ * 1. Get presigned URL from Worker
+ * 2. Upload file to R2
+ * 3. Register metadata in DB via Worker
+ */
 export const uploadImages = async (files: File[]): Promise<UploadResponse> => {
-  const formData = new FormData();
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
+  const uploadedImages: Image[] = [];
+  const errors: string[] = [];
 
-  const response = await api.post<UploadResponse>('/images/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
-  return response.data;
-};
+  for (const file of files) {
+    try {
+      // 1. Get Presigned URL
+      const { data: { url } } = await api.post<{ url: string }>('/images/upload-url', {
+        filename: file.name,
+        contentType: file.type
+      });
 
-/**
- * Upload images with server-side face detection using InsightFace.
- * This is faster and more accurate than client-side detection.
- */
-export const uploadImagesServerDetect = async (
-  files: File[]
-): Promise<UploadWithFacesResponse> => {
-  const formData = new FormData();
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
+      // 2. Upload to R2
+      await axios.put(url, file, {
+        headers: { 'Content-Type': file.type }
+      });
 
-  const response = await api.post<UploadWithFacesResponse>(
-    '/images/upload-server-detect',
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      // 3. Register Metadata
+      const { data: { id } } = await api.post<{ id: string }>('/images/meta', {
+        filename: file.name,
+        original_filename: file.name,
+        content_type: file.type,
+        size: file.size,
+        processed: false, // Will be processed by local script
+        created_at: new Date().toISOString()
+      });
+
+      uploadedImages.push({
+        id,
+        filename: file.name,
+        url: URL.createObjectURL(file), // Temporary local URL
+        processed: false
+      } as any);
+
+    } catch (err: any) {
+      console.error(`Failed to upload ${file.name}:`, err);
+      errors.push(file.name);
     }
-  );
-  return response.data;
+  }
+
+  return {
+    uploaded: uploadedImages.length,
+    failed: errors.length,
+    images: uploadedImages,
+    errors
+  };
 };
 
-export interface UploadAndProcessResponse {
-  uploaded: number;
-  failed: number;
-  images: Image[];
-  task_id: string | null;
-  errors: string[];
-}
-
-/**
- * Upload images and start background face detection.
- * Returns immediately with uploaded images, processing happens in background.
- */
-export const uploadAndProcess = async (
-  files: File[]
-): Promise<UploadAndProcessResponse> => {
-  const formData = new FormData();
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
-
-  const response = await api.post<UploadAndProcessResponse>(
-    '/images/upload-and-process',
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    }
-  );
-  return response.data;
-};
 
 export const getImages = async (
   skip = 0,

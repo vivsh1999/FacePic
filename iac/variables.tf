@@ -33,20 +33,9 @@ variable "mongodb_url" {
   sensitive   = true
 }
 
-variable "image_tag" {
-  description = "Tag of the Docker image to deploy"
+variable "cloudflare_account_id" {
+  description = "Cloudflare Account ID"
   type        = string
-  default     = "latest"
+  sensitive   = true
 }
 
-# --- GCP Variables ---
-variable "gcp_project_id" {
-  description = "GCP Project ID for Cloud Run deployment"
-  type        = string
-}
-
-variable "gcp_region" {
-  description = "GCP Region for Cloud Run deployment (e.g., us-central1)"
-  type        = string
-  default     = "us-central1"
-}
