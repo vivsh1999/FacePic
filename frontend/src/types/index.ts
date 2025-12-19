@@ -95,6 +95,14 @@ export interface BackgroundProcessingResponse {
   image_count: number;
 }
 
+export interface UploadAndProcessResponse {
+  uploaded: number;
+  failed: number;
+  images: Image[];
+  task_id?: string;
+  errors: string[];
+}
+
 export interface TaskStatusResponse {
   task_id: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';

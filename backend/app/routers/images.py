@@ -56,6 +56,7 @@ def _image_to_response(image: ImageDocument, face_count: int = 0) -> dict:
         "uploaded_at": image.uploaded_at,
         "processed": image.processed,
         "face_count": face_count,
+        "faces": image.faces,
     }
 
 
@@ -256,6 +257,7 @@ async def upload_images_server_detect(
             # Detect faces using InsightFace
             detected_faces = insightface_service.detect_faces(filepath)
             
+            image_face_ids = []
             for bbox, encoding in detected_faces:
                 top, right, bottom, left = bbox
                 # Convert numpy.int64 to Python int for MongoDB serialization
@@ -274,6 +276,7 @@ async def upload_images_server_detect(
                 
                 face_result = await db.faces.insert_one(face_doc_data)
                 face_id = str(face_result.inserted_id)
+                image_face_ids.append(face_result.inserted_id)
                 
                 # Create face thumbnail
                 face_thumbnail_path = image_service.create_face_thumbnail(
@@ -290,6 +293,13 @@ async def upload_images_server_detect(
                 
                 new_face_ids.append(face_id)
                 total_faces += 1
+            
+            # Update image with faces
+            await db.images.update_one(
+                {"_id": result.inserted_id},
+                {"$set": {"faces": image_face_ids}}
+            )
+            image_doc.faces = [str(fid) for fid in image_face_ids]
             
             uploaded.append(_image_to_response(image_doc, len(detected_faces)))
             
@@ -411,6 +421,7 @@ async def upload_images_with_faces(
             
             # Process faces from client data
             faces_in_image = file_face_data.get("faces", [])
+            image_face_ids = []
             for face_data_item in faces_in_image:
                 bbox = face_data_item.get("bbox", {})
                 encoding_list = face_data_item.get("encoding", [])
@@ -432,6 +443,7 @@ async def upload_images_with_faces(
                 
                 face_result = await db.faces.insert_one(face_doc_data)
                 face_id = str(face_result.inserted_id)
+                image_face_ids.append(face_result.inserted_id)
                 
                 # Create face thumbnail
                 thumbnail_path = image_service.create_face_thumbnail(
@@ -449,6 +461,13 @@ async def upload_images_with_faces(
                 
                 new_face_ids.append(face_id)
                 total_faces += 1
+            
+            # Update image with faces
+            await db.images.update_one(
+                {"_id": result.inserted_id},
+                {"$set": {"faces": image_face_ids}}
+            )
+            image_doc.faces = [str(fid) for fid in image_face_ids]
             
             uploaded.append(_image_to_response(image_doc, len(faces_in_image)))
             
@@ -798,6 +817,7 @@ async def reprocess_image(
         await db.faces.delete_many({"image_id": image_id})
         
         # Process new faces from client data
+        image_face_ids = []
         for face_data_item in faces_list:
             bbox = face_data_item.get("bbox", {})
             encoding_list = face_data_item.get("encoding", [])
@@ -819,6 +839,7 @@ async def reprocess_image(
             
             face_result = await db.faces.insert_one(face_doc_data)
             face_id = str(face_result.inserted_id)
+            image_face_ids.append(face_result.inserted_id)
             
             # Create face thumbnail
             thumbnail_path = image_service.create_face_thumbnail(
@@ -830,6 +851,19 @@ async def reprocess_image(
             
             # Update face with thumbnail path
             await db.faces.update_one(
+                {"_id": face_result.inserted_id},
+                {"$set": {"thumbnail_path": thumbnail_path}}
+            )
+            
+            new_face_ids.append(face_id)
+        
+        # Update image with faces
+        await db.images.update_one(
+            {"_id": oid},
+            {"$set": {"faces": image_face_ids, "processed": 1}}
+        )
+        image.faces = [str(fid) for fid in image_face_ids]
+        image.processed = 1
                 {"_id": face_result.inserted_id},
                 {"$set": {"thumbnail_path": thumbnail_path}}
             )
@@ -917,6 +951,7 @@ async def process_images(
     
     for doc in images:
         image = image_from_doc(doc)
+        image_face_ids = []
         try:
             # Detect faces
             detected = face_service.detect_faces(image.filepath)
@@ -936,6 +971,7 @@ async def process_images(
                 
                 result = await db.faces.insert_one(face_doc.to_dict())
                 face_id = str(result.inserted_id)
+                image_face_ids.append(result.inserted_id)
                 
                 # Create face thumbnail
                 thumbnail_path = image_service.create_face_thumbnail(
@@ -953,10 +989,10 @@ async def process_images(
                 new_face_ids.append(face_id)
                 faces_detected += 1
             
-            # Mark image as processed
+            # Mark image as processed and update faces
             await db.images.update_one(
                 {"_id": to_object_id(image.id)},
-                {"$set": {"processed": 1}}
+                {"$set": {"processed": 1, "faces": image_face_ids}}
             )
             processed_count += 1
             
@@ -1002,6 +1038,7 @@ def _process_images_background(task_id: str, image_ids: List[str]):
         for i, doc in enumerate(images):
             doc["_id"] = str(doc["_id"])
             image = image_from_doc(doc)
+            image_face_ids = []
             
             try:
                 # Detect faces
@@ -1022,6 +1059,7 @@ def _process_images_background(task_id: str, image_ids: List[str]):
                     
                     result = db.faces.insert_one(face_data)
                     face_id = str(result.inserted_id)
+                    image_face_ids.append(result.inserted_id)
                     
                     thumbnail_path = image_service.create_face_thumbnail(
                         image.filepath,
@@ -1039,7 +1077,7 @@ def _process_images_background(task_id: str, image_ids: List[str]):
                 
                 db.images.update_one(
                     {"_id": ObjectId(image.id)},
-                    {"$set": {"processed": 1}}
+                    {"$set": {"processed": 1, "faces": image_face_ids}}
                 )
                 processed_count += 1
                 

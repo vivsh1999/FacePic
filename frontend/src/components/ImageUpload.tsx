@@ -1,9 +1,8 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, X, CheckCircle, AlertCircle, Loader2, ImageIcon, Cpu, User, Edit2, Check, Server, Eye } from 'lucide-react';
+import { Upload, X, CheckCircle, AlertCircle, Loader2, ImageIcon, User, Edit2, Check, Server, Eye } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { uploadImagesWithFaces, uploadAndProcess, getTaskStatus, updatePerson, type UploadWithFacesRequest, type UploadWithFacesResponse, type DetectedFaceInfo, type UploadAndProcessResponse, type TaskStatusResponse } from '../services/api';
-import { detectFaces, loadModels, areModelsLoaded, type FaceDetectionResult } from '../services/faceDetection';
+import { uploadAndProcess, getTaskStatus, updatePerson, type UploadWithFacesResponse, type DetectedFaceInfo, type UploadAndProcessResponse, type TaskStatusResponse } from '../services/api';
 
 interface FileWithPreview extends File {
   preview?: string;
@@ -19,9 +18,6 @@ interface DetectionProgress {
 export default function ImageUpload() {
   const [files, setFiles] = useState<FileWithPreview[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [detecting, setDetecting] = useState(false);
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [detectionProgress, setDetectionProgress] = useState<DetectionProgress | null>(null);
   const [result, setResult] = useState<UploadWithFacesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
@@ -36,22 +32,6 @@ export default function ImageUpload() {
   const [editingFaceId, setEditingFaceId] = useState<string | null>(null);
   const [savingLabel, setSavingLabel] = useState<string | null>(null);
   
-  // Detection mode: 'client' (face-api.js) or 'server' (InsightFace)
-  const [detectionMode, setDetectionMode] = useState<'client' | 'server'>('server');
-
-  // Load models on component mount
-  useEffect(() => {
-    if (!areModelsLoaded()) {
-      setModelsLoading(true);
-      loadModels()
-        .then(() => setModelsLoading(false))
-        .catch((err) => {
-          console.error('Failed to load face detection models:', err);
-          setModelsLoading(false);
-        });
-    }
-  }, []);
-
   // Poll for task status when processing in background
   useEffect(() => {
     if (!uploadResult?.task_id || processingComplete) return;
@@ -117,86 +97,25 @@ export default function ImageUpload() {
     setProcessingComplete(false);
 
     try {
-      if (detectionMode === 'server') {
-        // Fast upload with background processing
-        setUploading(true);
-        
-        const response = await uploadAndProcess(files);
-        setUploadResult(response);
-        
-        // Clear selected files (they're uploaded)
-        files.forEach((file) => {
-          if (file.preview) {
-            URL.revokeObjectURL(file.preview);
-          }
-        });
-        setFiles([]);
-        setUploading(false);
-        // Processing will continue in background, tracked via taskStatus
-      } else {
-        // Client-side detection with face-api.js
-        setDetecting(true);
-        setDetectionProgress({ current: 0, total: files.length, currentFile: '', facesFound: 0 });
-        
-        const faceDataMap = new Map<File, UploadWithFacesRequest>();
-        let totalFaces = 0;
-
-        for (let i = 0; i < files.length; i++) {
-          if (abortRef.current) break;
-          
-          const file = files[i];
-          setDetectionProgress({
-            current: i + 1,
-            total: files.length,
-            currentFile: file.name,
-            facesFound: totalFaces,
-          });
-
-          try {
-            const result: FaceDetectionResult = await detectFaces(file);
-            faceDataMap.set(file, {
-              faces: result.faces.map((f) => ({
-                bbox: f.bbox,
-                encoding: f.encoding,
-              })),
-              width: result.width,
-              height: result.height,
-            });
-            totalFaces += result.faces.length;
-          } catch (err) {
-            console.error(`Face detection failed for ${file.name}:`, err);
-            faceDataMap.set(file, { faces: [], width: 0, height: 0 });
-          }
+      // Fast upload with background processing
+      setUploading(true);
+      
+      const response = await uploadAndProcess(files);
+      setUploadResult(response);
+      
+      // Clear selected files (they're uploaded)
+      files.forEach((file) => {
+        if (file.preview) {
+          URL.revokeObjectURL(file.preview);
         }
-
-        setDetectionProgress((prev) => prev && { ...prev, facesFound: totalFaces });
-        
-        if (abortRef.current) {
-          setDetecting(false);
-          return;
-        }
-
-        // Upload images with face data
-        setDetecting(false);
-        setUploading(true);
-
-        const response = await uploadImagesWithFaces(files, faceDataMap);
-        setResult(response);
-
-        // Clear uploaded files
-        files.forEach((file) => {
-          if (file.preview) {
-            URL.revokeObjectURL(file.preview);
-          }
-        });
-        setFiles([]);
-      }
+      });
+      setFiles([]);
+      setUploading(false);
+      // Processing will continue in background, tracked via taskStatus
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
-      setDetecting(false);
-      setDetectionProgress(null);
     }
   };
 
@@ -247,43 +166,6 @@ export default function ImageUpload() {
 
   return (
     <div className="space-y-6">
-      {/* Detection Mode Toggle */}
-      <div className="flex items-center justify-center gap-2 p-3 bg-slate-100 rounded-lg">
-        <span className="text-sm text-slate-600 mr-2">Detection:</span>
-        <button
-          onClick={() => setDetectionMode('server')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-            detectionMode === 'server'
-              ? 'bg-primary-600 text-white'
-              : 'bg-white text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <Server className="h-4 w-4" />
-          Server (InsightFace)
-        </button>
-        <button
-          onClick={() => setDetectionMode('client')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-            detectionMode === 'client'
-              ? 'bg-primary-600 text-white'
-              : 'bg-white text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <Cpu className="h-4 w-4" />
-          Browser (face-api.js)
-        </button>
-      </div>
-
-      {/* Models Loading - only show for client mode */}
-      {detectionMode === 'client' && modelsLoading && (
-        <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
-          <div className="flex items-center gap-3">
-            <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-            <p className="text-blue-800">Loading face detection models...</p>
-          </div>
-        </div>
-      )}
-
       {/* Dropzone */}
       <div
         {...getRootProps()}
@@ -309,17 +191,10 @@ export default function ImageUpload() {
             <p className="text-slate-400 text-sm mt-1">
               Supports JPEG, PNG, GIF, BMP, WebP
             </p>
-            {detectionMode === 'server' ? (
-              <p className="text-purple-600 text-sm mt-2 flex items-center justify-center gap-1">
-                <Server className="h-4 w-4" />
-                Fast &amp; accurate server-side detection (InsightFace)
-              </p>
-            ) : (
-              <p className="text-green-600 text-sm mt-2 flex items-center justify-center gap-1">
-                <Cpu className="h-4 w-4" />
-                Client-side detection (face-api.js)
-              </p>
-            )}
+            <p className="text-purple-600 text-sm mt-2 flex items-center justify-center gap-1">
+              <Server className="h-4 w-4" />
+              Fast &amp; accurate server-side detection (InsightFace)
+            </p>
           </div>
         )}
       </div>

@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Loader2, Users, Trash2, RefreshCw, ImageOff, RotateCcw, Grid, List, Calendar, FileText, SortAsc, SortDesc } from 'lucide-react';
-import { getImages, deleteImage, reprocessImage, type UploadWithFacesRequest } from '../services/api';
-import { detectFaces, loadModels, areModelsLoaded } from '../services/faceDetection';
+import { getImages, deleteImage } from '../services/api';
 import type { Image } from '../types';
 
 const IMAGES_PER_PAGE = 20;
@@ -18,7 +17,6 @@ export default function Gallery() {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [reprocessingId, setReprocessingId] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   
@@ -92,54 +90,6 @@ export default function Gallery() {
       console.error('Delete error:', err);
     } finally {
       setDeletingId(null);
-    }
-  };
-
-  const handleReprocess = async (image: Image) => {
-    // Load models if not loaded
-    if (!areModelsLoaded()) {
-      try {
-        await loadModels();
-      } catch (err) {
-        console.error('Failed to load face detection models:', err);
-        return;
-      }
-    }
-
-    setReprocessingId(image.id);
-    try {
-      // Fetch the image and run face detection
-      const response = await fetch(image.image_url);
-      const blob = await response.blob();
-      const file = new File([blob], image.original_filename, { type: blob.type });
-      
-      const result = await detectFaces(file);
-      
-      const faceData: UploadWithFacesRequest = {
-        faces: result.faces.map((f) => ({
-          bbox: f.bbox,
-          encoding: f.encoding,
-        })),
-        width: result.width,
-        height: result.height,
-      };
-      
-      const reprocessResult = await reprocessImage(image.id, faceData);
-      
-      // Update the image in the list with new face count
-      if (reprocessResult.images.length > 0) {
-        setImages((prev) =>
-          prev.map((img) =>
-            img.id === image.id
-              ? { ...img, face_count: reprocessResult.faces_detected, processed: 1 }
-              : img
-          )
-        );
-      }
-    } catch (err) {
-      console.error('Reprocess error:', err);
-    } finally {
-      setReprocessingId(null);
     }
   };
 
@@ -363,21 +313,6 @@ export default function Gallery() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleReprocess(image);
-                    }}
-                    disabled={reprocessingId === image.id}
-                    className="p-2 bg-blue-500/90 backdrop-blur-sm rounded-full hover:bg-blue-600 text-white transition-colors disabled:opacity-50"
-                    title="Reprocess faces"
-                  >
-                    {reprocessingId === image.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RotateCcw className="h-4 w-4" />
-                    )}
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
                       handleDelete(image.id);
                     }}
                     disabled={deletingId === image.id}
@@ -453,18 +388,6 @@ export default function Gallery() {
               
               {/* Actions */}
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={() => handleReprocess(image)}
-                  disabled={reprocessingId === image.id}
-                  className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-                  title="Reprocess faces"
-                >
-                  {reprocessingId === image.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-4 w-4" />
-                  )}
-                </button>
                 <button
                   onClick={() => handleDelete(image.id)}
                   disabled={deletingId === image.id}

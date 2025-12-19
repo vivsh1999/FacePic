@@ -67,6 +67,7 @@ class ImageDocument(BaseModel):
     relative_path: Optional[str] = None # Path relative to import directory, for re-uploading
     metadata: Dict[str, Any] = Field(default_factory=dict)  # EXIF and other metadata
     folder_id: Optional[str] = None  # Reference to FolderDocument
+    faces: List[PyObjectId] = Field(default_factory=list, alias="faces")  # Redundant list of face IDs
     
     class Config:
         populate_by_name = True
@@ -75,6 +76,23 @@ class ImageDocument(BaseModel):
     def to_dict(self) -> dict:
         """Convert to dictionary for MongoDB insert."""
         data = self.model_dump(by_alias=True, exclude={"id"})
+        # Convert string IDs back to ObjectIds for MongoDB
+        if data.get("folder_id") and isinstance(data["folder_id"], str):
+            try:
+                data["folder_id"] = ObjectId(data["folder_id"])
+            except:
+                pass
+        if data.get("faces"):
+            converted_ids = []
+            for fid in data["faces"]:
+                if isinstance(fid, str):
+                    try:
+                        converted_ids.append(ObjectId(fid))
+                    except:
+                        converted_ids.append(fid)
+                else:
+                    converted_ids.append(fid)
+            data["faces"] = converted_ids
         return data
 
 

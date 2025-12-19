@@ -33,7 +33,7 @@ FacePic is a Google Photos-like application for face detection, clustering, and 
 ## 3. Critical Workflows
 
 ### Local Development
-- **Start:** `docker-compose up` (starts Backend, Frontend, MongoDB).
+- **Start:** `docker compose up` (starts Backend, Frontend, MongoDB).
 - **Frontend Dev:** `cd frontend && npm run dev` (runs on port 4173).
 - **Backend Dev:** `cd backend && uvicorn app.main:app --reload` (runs on port 8000).
 

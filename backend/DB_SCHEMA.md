@@ -20,6 +20,7 @@ Stores metadata for every photo uploaded or imported into the system.
 | `uploaded_at` | Date | Timestamp when the image was imported. |
 | `processed_at` | Date | Timestamp when the processing script finished. |
 | `folder_id` | ObjectId | Reference to the **Folder** document where this image resides. |
+| `faces` | Array\<ObjectId\> | Redundant array of references to the **Face** documents in this image. |
 
 ## 2. Folders Collection (`folders`)
 Represents the directory structure of the imported images.

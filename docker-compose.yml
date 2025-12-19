@@ -14,13 +14,17 @@ services:
       - insightface_models:/root/.insightface
       # Local pip cache
       - ./dockercache:/root/.cache/pip
-      # Local images to import (read-only)
-      - "/Volumes/Vivek's SSD/My Photos/PRAVI:/app/import_images:ro"
+      # Use long syntax for bind mount to better handle special characters
+      - type: bind
+        source: "${IMPORT_PATH}"
+        target: /app/import_images
+        read_only: true
     environment:
       - MONGODB_URL=${MONGODB_URL}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-facepic}
       - UPLOAD_DIR=/app/uploads
       - THUMBNAIL_DIR=/app/thumbnails
+      - IMPORT_DIR=/app/import_images
       - FACE_RECOGNITION_TOLERANCE=${FACE_RECOGNITION_TOLERANCE:-0.6}
       - FACE_RECOGNITION_MODEL=${FACE_RECOGNITION_MODEL:-cnn}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:4173}

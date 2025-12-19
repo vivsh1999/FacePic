@@ -116,6 +116,7 @@ class ImageResponse(ImageBase):
     uploaded_at: datetime
     processed: int
     face_count: int
+    faces: List[str] = []
     
     class Config:
         from_attributes = True

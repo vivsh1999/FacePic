@@ -33,7 +33,7 @@ FacePic uses a hybrid "Personal Cloud" architecture where heavy image processing
 ### 4. Database (MongoDB Atlas)
 - **Database**: `facepic`
 - **Schemas**:
-  - **Images**: Stores metadata (filename, R2 path, dimensions, upload timestamp, EXIF/GPS data).
+  - **Images**: Stores metadata (filename, R2 path, dimensions, upload timestamp, EXIF/GPS data, and a redundant list of `faces`).
   - **Faces**: Stores face encodings (vector), bounding boxes, and links to `Image` and `Person`.
   - **Persons**: Represents a unique identity (cluster of faces).
   - **Folders**: Mirrors the local directory structure for organization.
@@ -62,6 +62,7 @@ FacePic uses a hybrid "Personal Cloud" architecture where heavy image processing
                 - Compares embedding with existing `Person` clusters (Cosine Similarity).
                 - Matches to existing `Person` OR creates a new `Person`.
                 - Creates `Face` document linked to the Image and Person.
+            - **Redundancy**: Updates the `Image` document with the list of all `faces` detected in it.
         6.  **Log**: Appends entry to `processed_log.jsonl`.
 
 ## Directory Structure

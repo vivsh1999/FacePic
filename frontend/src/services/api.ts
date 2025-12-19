@@ -11,15 +11,39 @@ import type {
   Stats,
   BackgroundProcessingResponse,
   TaskStatusResponse,
+  UploadAndProcessResponse,
 } from '../types';
 
-export type { TaskStatusResponse };
+export type { TaskStatusResponse, UploadAndProcessResponse };
 
 const api = axios.create({
   baseURL: '/api',
 });
 
 // ============ Images API ============
+
+/**
+ * Upload images and start background processing on the server.
+ */
+export const uploadAndProcess = async (
+  files: File[]
+): Promise<UploadAndProcessResponse> => {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
+
+  const response = await api.post<UploadAndProcessResponse>(
+    '/images/upload-and-process',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+  return response.data;
+};
 
 /**
  * Upload images directly to R2 via presigned URLs.
@@ -98,28 +122,6 @@ export const deleteImage = async (imageId: string): Promise<void> => {
   await api.delete(`/images/${imageId}`);
 };
 
-/**
- * Reprocess an existing image with new face data from client-side detection
- */
-export const reprocessImage = async (
-  imageId: string,
-  faceData: UploadWithFacesRequest
-): Promise<UploadWithFacesResponse> => {
-  const formData = new FormData();
-  formData.append('face_data', JSON.stringify(faceData));
-
-  const response = await api.post<UploadWithFacesResponse>(
-    `/images/${imageId}/reprocess`,
-    formData,
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    }
-  );
-  return response.data;
-};
-
 export const getProcessingStatus = async (): Promise<ProcessingStatus> => {
   const response = await api.get<ProcessingStatus>('/images/status');
   return response.data;
@@ -153,22 +155,6 @@ export const getTaskStatus = async (
   return response.data;
 };
 
-export interface FaceData {
-  bbox: {
-    top: number;
-    right: number;
-    bottom: number;
-    left: number;
-  };
-  encoding: number[];
-}
-
-export interface UploadWithFacesRequest {
-  faces: FaceData[];
-  width: number;
-  height: number;
-}
-
 export interface DetectedFaceInfo {
   face_id: string;
   thumbnail_url: string;
@@ -187,35 +173,6 @@ export interface UploadWithFacesResponse {
   detected_faces: DetectedFaceInfo[];
   errors: string[];
 }
-
-/**
- * Upload images with pre-detected face data from client-side face detection
- */
-export const uploadImagesWithFaces = async (
-  files: File[],
-  faceDataMap: Map<File, UploadWithFacesRequest>
-): Promise<UploadWithFacesResponse> => {
-  const formData = new FormData();
-  
-  // Add files
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
-  
-  // Add face data as JSON
-  const faceDataArray = files.map((file) => {
-    const data = faceDataMap.get(file);
-    return data || { faces: [], width: 0, height: 0 };
-  });
-  formData.append('face_data', JSON.stringify(faceDataArray));
-
-  const response = await api.post<UploadWithFacesResponse>('/images/upload-with-faces', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
-  return response.data;
-};
 
 // ============ Persons API ============
 
