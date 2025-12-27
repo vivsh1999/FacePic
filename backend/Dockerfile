@@ -1,29 +1,15 @@
-# Backend Production Dockerfile
-FROM python:3.12-slim
-
-# Install minimal system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    build-essential \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
+FROM oven/bun:1
 
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt .
-# Use cache mount to speed up pip installs
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+COPY package.json ./
+COPY package-lock.json ./
 
-# Copy application code
-COPY . .
+RUN bun install --production
 
-# Create directories for uploads and thumbnails
-RUN mkdir -p uploads thumbnails/images thumbnails/faces
+COPY src ./src
 
-# Expose port
-EXPOSE 8000
+ENV PORT=8080
+EXPOSE 8080
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["bun", "src/index.ts"]

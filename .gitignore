@@ -17,13 +17,13 @@ __pycache__/
 *.sqlite3
 
 # Uploads and generated files
-backend/uploads/*
+processor/uploads/*
 dockercache/
-backend/thumbnails/*
-!backend/uploads/.gitkeep
-!backend/thumbnails/.gitkeep
-!backend/thumbnails/images/.gitkeep
-!backend/thumbnails/faces/.gitkeep
+processor/thumbnails/*
+!processor/uploads/.gitkeep
+!processor/thumbnails/.gitkeep
+!processor/thumbnails/images/.gitkeep
+!processor/thumbnails/faces/.gitkeep
 
 # Root-level uploads/thumbnails (Docker volumes)
 uploads/
@@ -40,6 +40,7 @@ build/
 *.swp
 *.swo
 .DS_Store
+.wrangler
 
 # Logs
 *.log

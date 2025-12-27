@@ -4,7 +4,7 @@ This directory contains Terraform configuration to deploy the FacePic applicatio
 
 ## Architecture
 - **Frontend**: AWS S3 (Static Hosting) + CloudFront (CDN)
-- **Backend**: AWS ECS Fargate (Serverless containers) + ALB
+- **Processor**: AWS ECS Fargate (Serverless containers) + ALB
 - **DNS**: Cloudflare (pointing to CloudFront)
 - **Database**: MongoDB Atlas (External)
 
@@ -44,8 +44,8 @@ terraform apply
 ```
 Type `yes` to confirm. This may take 15-20 minutes (CloudFront distribution creation is slow).
 
-### 3. Deploy Backend
-After Terraform completes, build and push the backend image.
+### 3. Deploy Processor
+After Terraform completes, build and push the processor image.
 
 **Authenticate Docker to ECR:**
 ```bash
@@ -55,16 +55,16 @@ aws ecr get-login-password --region us-east-1 | docker login --username AWS --pa
 **Build and Push:**
 ```bash
 # Build (ensure linux/amd64 platform)
-docker build --platform linux/amd64 -t facepic-backend ../../backend
+docker build --platform linux/amd64 -t facepic-processor ../../processor
 
-# Tag (Replace <BACKEND_REPO_URL> with the output from terraform)
-docker tag facepic-backend:latest <BACKEND_REPO_URL>:latest
+# Tag (Replace <PROCESSOR_REPO_URL> with the output from terraform)
+docker tag facepic-processor:latest <PROCESSOR_REPO_URL>:latest
 
 # Push
-docker push <BACKEND_REPO_URL>:latest
+docker push <PROCESSOR_REPO_URL>:latest
 
 # Update Service
-aws ecs update-service --cluster facepic-cluster --service facepic-backend --force-new-deployment
+aws ecs update-service --cluster facepic-cluster --service facepic-processor --force-new-deployment
 ```
 
 ### 4. Deploy Frontend
@@ -93,12 +93,12 @@ aws cloudfront create-invalidation --distribution-id <DISTRIBUTION_ID> --paths "
 - `app_url`: The URL where your application is accessible.
 - `cloudfront_domain_name`: The raw CloudFront domain.
 - `s3_bucket_name`: The S3 bucket where frontend files are stored.
-- `ecr_backend_repo`: URL for the backend ECR repository.
+- `ecr_processor_repo`: URL for the processor ECR repository.
 
 ## GitHub Actions (CI/CD)
 
 Two workflows have been created in `.github/workflows/` to automate deployments:
-1.  **Backend Deploy**: Builds and pushes the Docker image to ECR, then updates the ECS service.
+1.  **Processor Deploy**: Builds and pushes the Docker image to ECR, then updates the ECS service.
 2.  **Frontend Deploy**: Builds the React app, syncs to S3, and invalidates CloudFront.
 
 ### Required Secrets
@@ -110,7 +110,7 @@ Add the following secrets:
 |-------------|-------------|---------------|
 | `AWS_ACCESS_KEY_ID` | AWS Access Key | `AKIA...` |
 | `AWS_SECRET_ACCESS_KEY` | AWS Secret Key | `wJalr...` |
-| `ECR_REPOSITORY_BACKEND` | Name of the Backend ECR Repo | `facepic-backend` |
+| `ECR_REPOSITORY_PROCESSOR` | Name of the Processor ECR Repo | `facepic-processor` |
 | `S3_BUCKET_NAME` | Name of the Frontend S3 Bucket | `facepic-frontend-a1b2c3d4` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | ID of the CloudFront Distribution | `E1XXXXXX` |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | `...` |

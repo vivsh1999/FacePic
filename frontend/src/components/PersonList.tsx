@@ -24,6 +24,11 @@ export default function PersonList() {
   const [sourcePerson, setSourcePerson] = useState<Person | null>(null);
   const [targetPerson, setTargetPerson] = useState<Person | null>(null);
   const [merging, setMerging] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    setIsAdmin(localStorage.getItem('adminAuth') === 'true');
+  }, []);
 
   const fetchPersons = useCallback(async (skip: number, append = false, search?: string) => {
     try {
@@ -307,7 +312,7 @@ export default function PersonList() {
               disabled={mergeMode}
             />
           </div>
-          {!mergeMode && persons.length >= 2 && (
+          {!mergeMode && isAdmin && persons.length >= 2 && (
             <button
               onClick={enterMergeMode}
               className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -449,7 +454,7 @@ export default function PersonList() {
                       >
                         {person.display_name}
                       </p>
-                      {!mergeMode && (
+                      {!mergeMode && isAdmin && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

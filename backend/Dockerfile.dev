@@ -1,0 +1,14 @@
+FROM oven/bun:1
+
+WORKDIR /app
+
+COPY package.json ./
+# COPY package-lock.json ./ # bun.lockb is usually what bun uses, but package-lock.json works too if it exists. 
+# The user has package.json.
+
+RUN bun install
+
+ENV PORT=8080
+EXPOSE 8080
+
+CMD ["bun", "run", "dev"]

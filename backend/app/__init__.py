@@ -1,1 +1,0 @@
-"""ImageTag Backend Application"""

@@ -1,15 +1,15 @@
 # Docker Compose for Production
 services:
-  backend:
+  processor:
     build:
-      context: ./backend
+      context: ./processor
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
     volumes:
       # Persist uploads and thumbnails
-      - ./backend/uploads:/app/uploads
-      - ./backend/thumbnails:/app/thumbnails
+      - ./processor/uploads:/app/uploads
+      - ./processor/thumbnails:/app/thumbnails
       # Cache InsightFace models
       - insightface_models:/root/.insightface
       # Local pip cache
@@ -27,6 +27,7 @@ services:
       - IMPORT_DIR=/app/import_images
       - FACE_RECOGNITION_TOLERANCE=${FACE_RECOGNITION_TOLERANCE:-0.6}
       - FACE_RECOGNITION_MODEL=${FACE_RECOGNITION_MODEL:-cnn}
+      - INSIGHTFACE_TOLERANCE=${INSIGHTFACE_TOLERANCE:-0.6}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:4173}
       # R2 Configuration
       - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
@@ -43,7 +44,7 @@ services:
     environment:
       - VITE_API_URL=http://localhost:8000
     depends_on:
-      - backend
+      - processor
     restart: unless-stopped
 
 volumes:

@@ -1,0 +1,1 @@
+"""ImageTag Processor Application"""

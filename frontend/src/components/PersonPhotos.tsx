@@ -11,6 +11,11 @@ export default function PersonPhotos() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    setIsAdmin(localStorage.getItem('adminAuth') === 'true');
+  }, []);
 
   const fetchData = async () => {
     if (!personId) return;
@@ -129,12 +134,14 @@ export default function PersonPhotos() {
                 >
                   {person.display_name}
                 </h1>
-                <button
-                  onClick={startEditing}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
-                >
-                  <Edit2 className="h-4 w-4" />
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={startEditing}
+                    className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             )}
             <p className="text-slate-500 text-sm">

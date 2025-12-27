@@ -1,3 +1,3 @@
 #!/bin/bash
-# Run the cleanup script inside the backend container
-docker compose run --rm backend python cleanup.py "$@"
+# Run the cleanup script inside the processor container
+docker compose run --rm processor python cleanup.py "$@"

@@ -18,7 +18,7 @@ A Google Photos-like application that automatically detects faces in your photos
 | Layer | Technology |
 |-------|------------|
 | Frontend | React + TypeScript + Tailwind CSS |
-| Backend | Python FastAPI |
+| Processor | Python FastAPI |
 | Face Detection/Recognition | `face_recognition` library (dlib) |
 | Database | MongoDB Atlas (Motor async driver) |
 | Image Storage | Local filesystem |
@@ -36,7 +36,7 @@ A Google Photos-like application that automatically detects faces in your photos
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Backend (FastAPI)                         │
+│                    Processor (FastAPI)                       │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
 │  │   Upload    │  │    Face     │  │   Person/Label      │  │
 │  │   Service   │  │  Detection  │  │    Management       │  │
@@ -109,7 +109,7 @@ A Google Photos-like application that automatically detects faces in your photos
 
 ```
 ImageTag/
-├── backend/
+├── processor/
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── main.py              # FastAPI application entry
@@ -132,6 +132,11 @@ ImageTag/
 │   │   └── faces/               # Face crop thumbnails
 │   ├── requirements.txt         # Python dependencies
 │   └── .env.example             # Environment variables template
+├── backend/                     # Cloudflare Worker (Actual Backend)
+│   ├── src/
+│   │   └── index.ts             # Hono API endpoints
+│   ├── wrangler.toml            # Cloudflare configuration
+│   └── package.json
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
@@ -179,11 +184,11 @@ brew install cmake
 sudo apt-get install cmake
 ```
 
-### Backend Setup
+### Processor Setup
 
-1. Navigate to the backend directory:
+1. Navigate to the processor directory:
    ```bash
-   cd backend
+   cd processor
    ```
 
 2. Create a virtual environment:
@@ -227,9 +232,9 @@ The app will be available at `http://localhost:5173`
 
 ## 🔧 Configuration
 
-### Backend Environment Variables
+### Processor Environment Variables
 
-Create a `.env` file in the `backend/` directory:
+Create a `.env` file in the `processor/` directory:
 
 ```env
 # Database
@@ -249,7 +254,7 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 
 ## 🚀 Implementation Phases
 
-### Phase 1: Backend Foundation ✅
+### Phase 1: Processor Foundation ✅
 - [x] Set up FastAPI project structure
 - [x] Create database models (SQLite + SQLAlchemy)
 - [x] Implement image upload endpoint

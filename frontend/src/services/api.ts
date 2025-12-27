@@ -39,6 +39,7 @@ export const uploadAndProcess = async (
     {
       headers: {
         'Content-Type': 'multipart/form-data',
+        ...getAdminHeaders(),
       },
     }
   );
@@ -61,6 +62,8 @@ export const uploadImages = async (files: File[]): Promise<UploadResponse> => {
       const { data: { url } } = await api.post<{ url: string }>('/images/upload-url', {
         filename: file.name,
         contentType: file.type
+      }, {
+        headers: getAdminHeaders(),
       });
 
       // 2. Upload to R2
@@ -76,6 +79,8 @@ export const uploadImages = async (files: File[]): Promise<UploadResponse> => {
         size: file.size,
         processed: false, // Will be processed by local script
         created_at: new Date().toISOString()
+      }, {
+        headers: getAdminHeaders(),
       });
 
       uploadedImages.push({
@@ -119,7 +124,9 @@ export const getImage = async (imageId: string): Promise<ImageDetail> => {
 };
 
 export const deleteImage = async (imageId: string): Promise<void> => {
-  await api.delete(`/images/${imageId}`);
+  await api.delete(`/images/${imageId}`, {
+    headers: getAdminHeaders(),
+  });
 };
 
 export const getProcessingStatus = async (): Promise<ProcessingStatus> => {
@@ -132,6 +139,8 @@ export const processImages = async (
 ): Promise<ProcessingResponse> => {
   const response = await api.post<ProcessingResponse>('/images/process', {
     image_ids: imageIds,
+  }, {
+    headers: getAdminHeaders(),
   });
   return response.data;
 };
@@ -141,7 +150,10 @@ export const processImagesBackground = async (
 ): Promise<BackgroundProcessingResponse> => {
   const response = await api.post<BackgroundProcessingResponse>(
     '/images/process/background',
-    { image_ids: imageIds }
+    { image_ids: imageIds },
+    {
+      headers: getAdminHeaders(),
+    }
   );
   return response.data;
 };
@@ -202,12 +214,16 @@ export const updatePerson = async (
   personId: string,
   name: string
 ): Promise<Person> => {
-  const response = await api.put<Person>(`/persons/${personId}`, { name });
+  const response = await api.put<Person>(`/persons/${personId}`, { name }, {
+    headers: getAdminHeaders(),
+  });
   return response.data;
 };
 
 export const deletePerson = async (personId: string): Promise<void> => {
-  await api.delete(`/persons/${personId}`);
+  await api.delete(`/persons/${personId}`, {
+    headers: getAdminHeaders(),
+  });
 };
 
 export const getPersonPhotos = async (
@@ -231,6 +247,9 @@ export const mergePersons = async (
     {
       source_person_id: sourcePersonId,
       target_person_id: targetPersonId,
+    },
+    {
+      headers: getAdminHeaders(),
     }
   );
   return response.data;
@@ -263,8 +282,15 @@ export interface DeleteDuplicatesResponse {
   errors: string[];
 }
 
+const getAdminHeaders = () => {
+  const password = localStorage.getItem('adminPassword');
+  return password ? { 'X-Admin-Password': password } : {};
+};
+
 export const getDuplicates = async (): Promise<DuplicatesResponse> => {
-  const response = await api.get<DuplicatesResponse>('/images/duplicates');
+  const response = await api.get<DuplicatesResponse>('/images/duplicates', {
+    headers: getAdminHeaders(),
+  });
   return response.data;
 };
 
@@ -273,7 +299,10 @@ export const deleteDuplicates = async (
 ): Promise<DeleteDuplicatesResponse> => {
   const response = await api.post<DeleteDuplicatesResponse>(
     '/images/duplicates/delete',
-    { image_ids: imageIds }
+    { image_ids: imageIds },
+    {
+      headers: getAdminHeaders(),
+    }
   );
   return response.data;
 };
@@ -281,7 +310,39 @@ export const deleteDuplicates = async (
 // ============ Stats API ============
 
 export const getStats = async (): Promise<Stats> => {
-  const response = await api.get<Stats>('/stats');
+  const response = await api.get<Stats>('/stats', {
+    headers: getAdminHeaders(),
+  });
+  return response.data;
+};
+
+export const verifyAdmin = async (password: string): Promise<{ success: boolean; message?: string }> => {
+  const response = await api.post<{ success: boolean; message?: string }>('/admin/verify', { password });
+  return response.data;
+};
+
+export interface FileItem {
+  name: string;
+  path: string;
+  is_directory: boolean;
+  size?: number;
+  modified_at?: number;
+  processed?: boolean;
+  thumbnail_path?: string;
+}
+
+export interface ListFilesOptions {
+  sort?: 'name' | 'size' | 'date';
+  order?: 'asc' | 'desc';
+  filter?: string;
+  type?: 'all' | 'files' | 'folders';
+}
+
+export const listFiles = async (path = '', options: ListFilesOptions = {}): Promise<FileItem[]> => {
+  const response = await api.get<FileItem[]>('/filesystem/list', {
+    params: { path, ...options },
+    headers: getAdminHeaders(),
+  });
   return response.data;
 };
 
